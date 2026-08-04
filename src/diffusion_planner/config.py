@@ -1,36 +1,37 @@
-"""Small, explicit configuration for the study implementation."""
+"""Official Diffusion Planner architecture configuration."""
 
 from dataclasses import dataclass
 
 
 @dataclass
 class PlannerConfig:
-    """Tensor dimensions used by the structured toy/nuPlan-like interface."""
+    """Defaults from the official released checkpoint ``args.json``."""
 
-    history_steps: int = 8
-    future_steps: int = 12
-    neighbor_count: int = 4
-    static_count: int = 4
-    lane_count: int = 8
-    lane_points: int = 12
-    route_count: int = 2
-    hidden_dim: int = 96
-    heads: int = 4
-    encoder_depth: int = 2
-    decoder_depth: int = 2
-    mixer_tokens: int = 16
-    mixer_channels: int = 64
-    beta_min: float = 0.1
-    beta_max: float = 20.0
+    future_len: int = 80
+    time_len: int = 21
+    agent_state_dim: int = 11
+    agent_num: int = 32
+    static_objects_state_dim: int = 10
+    static_objects_num: int = 5
+    lane_len: int = 20
+    lane_state_dim: int = 12
+    lane_num: int = 70
+    route_len: int = 20
+    route_state_dim: int = 12
+    route_num: int = 25
+    predicted_neighbor_num: int = 10
+    hidden_dim: int = 192
+    num_heads: int = 6
+    encoder_depth: int = 3
+    decoder_depth: int = 3
+    encoder_drop_path_rate: float = 0.1
+    decoder_drop_path_rate: float = 0.1
+    diffusion_model_type: str = "x_start"
 
     @property
-    def participant_count(self) -> int:
-        return 1 + self.neighbor_count
-
-    @property
-    def state_dim(self) -> int:
-        return 4
+    def participant_num(self) -> int:
+        return 1 + self.predicted_neighbor_num
 
     @property
     def trajectory_dim(self) -> int:
-        return (self.future_steps + 1) * self.state_dim
+        return (self.future_len + 1) * 4
