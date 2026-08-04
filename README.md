@@ -1,18 +1,18 @@
 # Diffusion Planner from Scratch
 
-An educational, independently implemented study of **Diffusion-Based Planning for Autonomous Driving with Flexible Guidance** (Zheng et al., ICLR 2025). The implementation follows the paper and the public official repository, but deliberately uses a small structured tensor interface so every module can be understood and tested on a laptop.
+An independently implemented, architecture-faithful study of **Diffusion-Based Planning for Autonomous Driving with Flexible Guidance** (Zheng et al., ICLR 2025). The default configuration is the public official checkpoint configuration, while tests opt into reduced tensor sizes.
 
 ## What is implemented
 
-- Agent-history and lane vector encoders with MLP-Mixer blocks.
-- Masked transformer context fusion for agents, static objects, and lanes.
-- Route-independent DiT-style trajectory denoiser with timestep conditioning and adaptive modulation.
-- VP diffusion forward process and `x_start` denoising objective.
-- Joint ego and neighbor trajectory generation with the current state clamped during sampling.
-- Training-free differentiable collision and comfort guidance.
-- `notebooks/diffusion_planner_walkthrough.ipynb`, which rebuilds the complete pipeline independently instead of importing this package.
+- Agent-history, static-object, and lane encoders, including official type, speed-limit, traffic-light, and positional embeddings.
+- Official MLP-Mixer and masked context-fusion transformer structure.
+- Official route MLP-Mixer encoder and route-plus-timestep conditioning.
+- Official DiT block order, adaLN-Zero modulation, agent identity embeddings, and final adaLN projection.
+- Continuous VP-SDE, released `x_start` loss construction, state normalization, and current-state preservation.
+- A DPM-Solver-compatible denoiser callback; the external solver is intentionally not vendored.
+- `notebooks/diffusion_planner_walkthrough.ipynb`, a module-by-module architecture study with input/output traces.
 
-This is not a nuPlan reproduction and does not claim the paper's benchmark results. It omits nuPlan preprocessing, DPM-Solver, normalization statistics, CARLA/nuPlan closed-loop runners, and production-scale training. Those boundaries keep the learning implementation runnable and make the tensor contracts explicit.
+This is architecture-faithful, not a complete nuPlan benchmark reproduction. It omits nuPlan's SDK-dependent raw-data preprocessing, released checkpoint loading, the upstream DPM-Solver dependency, distributed training, and closed-loop runners. The model defaults, component topology, tensor interfaces, loss construction, and initialization follow the official release.
 
 ## Install and test
 
@@ -21,17 +21,18 @@ python3 -m pip install -e ".[dev]"
 pytest
 ```
 
-The default toy contract is:
+The default released-checkpoint contract is:
 
 ```text
-neighbor_agents_past: (batch, 4 neighbors, 8 history steps, 11 features)
-static_objects:      (batch, 4 objects, 10 features)
-lanes:               (batch, 8 lanes, 12 points, 12 features)
-ego_current_state:   (batch, 4)             # x, y, cos(yaw), sin(yaw)
-target:              (batch, 5 participants, 13 steps, 4 features)
+neighbor_agents_past: (batch, 32 agents, 21 history steps, 11 features)
+static_objects:      (batch, 5 objects, 10 features)
+lanes:               (batch, 70 lanes, 20 points, 12 features)
+route_lanes:         (batch, 25 lanes, 20 points, 12 features)
+ego_current_state:   (batch, 10 features)
+future trajectory:   (batch, 11 participants, 80 steps, 4 features)
 ```
 
-The five participants are ego followed by four nearest neighbors. Each future state contains `(x, y, cos(yaw), sin(yaw))`, matching the paper's compact trajectory representation.
+The 11 participants are ego followed by ten nearest neighbors. Each future state contains `(x, y, cos(yaw), sin(yaw))`, matching the paper's compact trajectory representation.
 
 ## Repository layout
 
