@@ -25,6 +25,7 @@ def test_notebook_is_valid_and_compiles() -> None:
     assert "q_t(\\mathbf{x}_t" in markdown
     assert "\\operatorname{adaLN}" in markdown
     assert "\\mathcal{L}_{ego}" in markdown
+    assert all(character == "\n" or ord(character) >= 32 for character in markdown)
     code_cells = ["".join(cell["source"]) for cell in notebook["cells"] if cell["cell_type"] == "code"]
     for module in ("Mlp", "MixerBlock", "AgentFusionEncoder", "LaneFusionEncoder", "RouteEncoder", "DiTBlock"):
         assert any(f"class {module}" in cell for cell in code_cells)
