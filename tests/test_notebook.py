@@ -13,3 +13,9 @@ def test_notebook_is_valid_and_compiles() -> None:
     assert "RouteEncoder" in code
     assert "TrajectoryDiT" in code
     assert "diffusion_loss" in code
+    assert "from diffusion_planner" not in code
+    assert "import diffusion_planner" not in code
+    assert "inspect.getsource" not in code
+    code_cells = ["".join(cell["source"]) for cell in notebook["cells"] if cell["cell_type"] == "code"]
+    for module in ("Mlp", "MixerBlock", "AgentFusionEncoder", "LaneFusionEncoder", "RouteEncoder", "DiTBlock"):
+        assert any(f"class {module}" in cell for cell in code_cells)
