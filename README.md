@@ -21,6 +21,58 @@ python3 -m pip install -e ".[dev]"
 pytest
 ```
 
+## Dataset and preprocessing
+
+The official Diffusion-Planner model is trained with [nuPlan v1.1](https://www.nuscenes.org/nuplan#download).
+Create an account, accept the [nuPlan terms of use](https://www.nuscenes.org/terms-of-use), and manually
+download all required archives from the official portal. The nuPlan devkit's
+[dataset setup guide](https://nuplan-devkit.readthedocs.io/en/latest/dataset_setup.html) specifies the
+archives and extraction layout. After extraction, the upstream preprocessing script needs paths such as:
+
+```text
+~/nuplan/dataset/nuplan-v1.1/splits/trainval
+~/nuplan/dataset/maps
+```
+
+No dataset is downloaded by this repository. This implementation does not include nuPlan SDK preprocessing,
+a data loader, or a training runner.
+
+To generate the data used by the official training pipeline, install the [nuPlan devkit](https://github.com/motional/nuplan-devkit)
+and the [official Diffusion-Planner repository](https://github.com/ZhengYinan-AIR/Diffusion-Planner):
+
+```bash
+git clone https://github.com/motional/nuplan-devkit.git
+cd nuplan-devkit
+python3 -m pip install -e .
+python3 -m pip install -r requirements.txt
+
+cd ..
+git clone https://github.com/ZhengYinan-AIR/Diffusion-Planner.git
+cd Diffusion-Planner
+python3 -m pip install -e .
+python3 -m pip install -r requirements_torch.txt
+```
+
+In the upstream [`data_process.sh`](https://github.com/ZhengYinan-AIR/Diffusion-Planner/blob/main/data_process.sh),
+set the three variables to your extracted nuPlan directories and the desired generated-data output directory:
+
+```bash
+NUPLAN_DATA_PATH="$HOME/nuplan/dataset/nuplan-v1.1/splits/trainval"
+NUPLAN_MAP_PATH="$HOME/nuplan/dataset/maps"
+TRAIN_SET_PATH="/path/to/diffusion-planner-train-set"
+```
+
+Then run the upstream preprocessing script:
+
+```bash
+chmod +x data_process.sh
+./data_process.sh
+```
+
+The script invokes `data_process.py` with those paths and `--total_scenarios 1000000`. The generated data is
+for the upstream training pipeline; connecting it to this standalone model implementation requires a separate
+loader and training runner.
+
 The default released-checkpoint contract is:
 
 ```text
