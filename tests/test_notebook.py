@@ -20,6 +20,9 @@ def test_notebook_is_valid_and_compiles() -> None:
     assert "import diffusion_planner" not in code
     assert "inspect.getsource" not in code
     assert "Full architecture pipeline" in markdown
+    assert "ARCHITECTURE MAP" in markdown
+    assert "MODULE I/O CARD" in markdown
+    assert "EXECUTED TENSOR LEDGER" in code
     assert "CONDITIONING INPUTS" in markdown
     assert "Mathematical formulation" in markdown
     assert "q_t(\\mathbf{x}_t" in markdown
