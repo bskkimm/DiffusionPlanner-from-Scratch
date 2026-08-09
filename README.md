@@ -2,6 +2,16 @@
 
 An independently implemented, architecture-faithful study of **Diffusion-Based Planning for Autonomous Driving with Flexible Guidance** (Zheng et al., ICLR 2025). The default configuration is the public official checkpoint configuration, while tests opt into reduced tensor sizes.
 
+## Quick start
+
+```bash
+python3 -m pip install -e ".[dev]"
+python3 -m pytest
+jupyter notebook notebooks/diffusion_planner_walkthrough.ipynb
+```
+
+The notebook is the recommended entry point. It derives the architecture in execution order, shows the global tensor flow, and ends with an official-dimension synthetic shape trace.
+
 ## What is implemented
 
 - Agent-history, static-object, and lane encoders, including official type, speed-limit, traffic-light, and positional embeddings.
@@ -12,16 +22,25 @@ An independently implemented, architecture-faithful study of **Diffusion-Based P
 - A DPM-Solver-compatible denoiser callback; the external solver is intentionally not vendored.
 - `notebooks/diffusion_planner_walkthrough.ipynb`, a module-by-module architecture study with input/output traces.
 
-This is architecture-faithful, not a complete nuPlan benchmark reproduction. It omits nuPlan's SDK-dependent raw-data preprocessing, released checkpoint loading, the upstream DPM-Solver dependency, distributed training, and closed-loop runners. The model defaults, component topology, tensor interfaces, loss construction, and initialization follow the official release.
+> **Scope.** This is architecture-faithful, not a complete nuPlan benchmark reproduction. It omits nuPlan's SDK-dependent raw-data preprocessing, released checkpoint loading, the upstream DPM-Solver dependency, distributed training, and closed-loop runners. The model defaults, component topology, tensor interfaces, loss construction, and initialization follow the official release.
+
+## Learn the architecture
+
+Open `notebooks/diffusion_planner_walkthrough.ipynb` and run its cells in order. It covers:
+
+1. The global architecture map: scene encoders, context fusion, route/time conditioning, DiT denoising, and losses.
+2. Module I/O cards for every utility and model component, including shape-changing operations, masks, and embeddings.
+3. Mathematical derivations for normalization, VP-SDE noising, attention, adaLN, and the released `x_start` objective.
+4. An executed tensor ledger over synthetic official-dimension inputs.
 
 ## Install and test
 
 ```bash
 python3 -m pip install -e ".[dev]"
-pytest
+python3 -m pytest
 ```
 
-## Dataset and preprocessing
+## Upstream dataset and preprocessing
 
 The official Diffusion-Planner model is trained with [nuPlan v1.1](https://www.nuscenes.org/nuplan#download).
 Create an account, accept the [nuPlan terms of use](https://www.nuscenes.org/terms-of-use), and manually
@@ -34,8 +53,7 @@ archives and extraction layout. After extraction, the upstream preprocessing scr
 ~/nuplan/dataset/maps
 ```
 
-No dataset is downloaded by this repository. This implementation does not include nuPlan SDK preprocessing,
-a data loader, or a training runner.
+> **This repository does not download the dataset.** It does not include nuPlan SDK preprocessing, a data loader, or a training runner.
 
 To generate the data used by the official training pipeline, install the [nuPlan devkit](https://github.com/motional/nuplan-devkit)
 and the [official Diffusion-Planner repository](https://github.com/ZhengYinan-AIR/Diffusion-Planner):
@@ -73,7 +91,7 @@ The script invokes `data_process.py` with those paths and `--total_scenarios 100
 for the upstream training pipeline; connecting it to this standalone model implementation requires a separate
 loader and training runner.
 
-The default released-checkpoint contract is:
+### Released-checkpoint tensor contract
 
 ```text
 neighbor_agents_past: (batch, 32 agents, 21 history steps, 11 features)

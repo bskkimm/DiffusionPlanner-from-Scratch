@@ -37,8 +37,8 @@ def test_notebook_is_valid_and_compiles() -> None:
 def test_readme_documents_nuplan_preprocessing() -> None:
     readme = (Path(__file__).parents[1] / "README.md").read_text(encoding="utf-8")
 
-    assert "## Dataset and preprocessing" in readme
+    assert "## Upstream dataset and preprocessing" in readme
     assert "nuplan-v1.1/splits/trainval" in readme
     assert "~/nuplan/dataset/maps" in readme
     assert "data_process.sh" in readme
-    assert "No dataset is downloaded by this repository" in readme
+    assert "This repository does not download the dataset" in readme
