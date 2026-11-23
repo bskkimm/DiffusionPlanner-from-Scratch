@@ -97,7 +97,7 @@ python -m diffusion_planner.train --data-dir /path/to/generated-data \
   --manifest /path/to/train-list.json --output checkpoints/example --epochs 2 --resume
 ```
 
-This runner hashes sample contents and the recipe to reject changed data or settings on resume. It runs the actual loss and optimizer on CPU by default. It is a practical baseline, not the official distributed training recipe: it does not yet implement EMA, scheduling, augmentation, or official validation. Optional MLflow session logging is available but has not been integration-tested against a real MLflow server. Only load checkpoints you trust. The sampler in `sampling.py` includes an unguided DPM-Solver++ path checked against three fixed upstream CPU operator fixtures, plus a simpler deterministic alternative. Guided and checkpoint parity are unverified.
+This runner hashes sample contents and the recipe to reject changed data or settings on resume. It runs the actual loss and optimizer on CPU by default. It is a practical baseline, not the official distributed training recipe: it does not yet implement EMA, scheduling, augmentation, or official validation. Optional MLflow session logging has been checked against a local SQLite store with MLflow 3.14. Only load checkpoints you trust. The sampler in `sampling.py` includes an unguided DPM-Solver++ path checked against three fixed upstream CPU operator fixtures, plus a simpler deterministic alternative. Guided and checkpoint parity are unverified.
 
 To compute diagnostic open-loop ego displacement on a separate NPZ split:
 
