@@ -57,7 +57,7 @@ def sample_dpm_solver(
     """Second-order multistep DPM-Solver++ with log-SNR steps and final denoising.
 
     This implements the released solver's unguided x-start settings and retains
-    the supplied current state. Numerical parity is tested on one fixed fixture;
+    the supplied current state. Numerical parity is tested on three fixed CPU fixtures;
     model/checkpoint parity and guided sampling remain separate requirements.
     """
     if getattr(getattr(model, "config", None), "diffusion_model_type", "x_start") != "x_start":
