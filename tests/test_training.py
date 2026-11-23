@@ -194,6 +194,31 @@ def test_training_cli_runs_and_resumes(tmp_path):
         text=True,
     )
     assert set(json.loads(benchmark.stdout)["results"]) == {"loader", "cached_step", "end_to_end"}
+    tuning = tmp_path / "tuning.json"
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "diffusion_planner.tuning",
+            "--data-dir",
+            str(tmp_path),
+            "--manifest",
+            str(tmp_path / "list.json"),
+            "--config",
+            str(tmp_path / "config.json"),
+            "--max-seconds",
+            "30",
+            "--output",
+            str(tuning),
+        ],
+        check=True,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    report = json.loads(tuning.read_text())
+    assert report["baseline_measured"]
+    assert report["trials"][0]["status"] == "measured"
 
 
 def test_evaluation_cli_requires_explicit_checkpoint():

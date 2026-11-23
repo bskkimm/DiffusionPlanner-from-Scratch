@@ -110,7 +110,7 @@ This reports ADE/FDE in meters for a single sampled trajectory. It is not a nuPl
 
 Optional tracking uses `pip install -e ".[tracking]"` and `--mlflow-uri sqlite:///mlflow.db`; start the UI with `mlflow ui --backend-store-uri sqlite:///mlflow.db`. Each resumed session gets a separate run linked by the same data/recipe identity. MLflow is disabled by default.
 
-To measure loader, cached optimizer step, and end-to-end CPU throughput on supplied preprocessed data, run `python -m diffusion_planner.benchmark --data-dir /path/to/generated-data --manifest /path/to/train-list.json`. This diagnostic does not tune settings, control the OS cache, or measure GPU memory.
+To measure loader, cached optimizer step, and end-to-end CPU throughput on supplied preprocessed data, run `python -m diffusion_planner.benchmark --data-dir /path/to/generated-data --manifest /path/to/train-list.json`. This diagnostic does not tune settings, control the OS cache, or measure GPU memory. An optional bounded CPU thread tuner can be run with `python -m diffusion_planner.tuning --data-dir /path/to/generated-data --manifest /path/to/train-list.json --max-seconds 60 --output tuning.json`. It compares one and two CPU threads over repeated isolated FP32 trials, retaining one thread unless correctness holds and mean measured time improves by at least 5%. It uses a single cached batch and does not tune GPU, microbatching, or data loading.
 
 
 

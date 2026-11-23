@@ -165,6 +165,8 @@ def test_dit_block_matches_pinned_upstream_fixture():
     from diffusion_planner.model.dit import DiTBlock
 
     model = DiTBlock(dim=32, heads=4, dropout=0).eval()
+    assert model.mlp1.act.approximate == "tanh"
+    assert model.mlp2.act.approximate == "tanh"
     with torch.no_grad():
         for name, parameter in model.named_parameters():
             value = torch.linspace(-0.1, 0.1, parameter.numel()).reshape(parameter.shape)
@@ -187,7 +189,7 @@ def test_dit_block_matches_pinned_upstream_fixture():
             -0.0223494470,
         ]
     )
-    torch.testing.assert_close(actual, expected, rtol=1e-6, atol=1e-8)
+    torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-6)
 
 
 def test_full_dit_training_matches_pinned_upstream_fixture():

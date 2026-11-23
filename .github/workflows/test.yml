@@ -32,6 +32,7 @@ jobs:
       - run: python -m diffusion_planner.train --help
       - run: python -m diffusion_planner.evaluate --help
       - run: python -m diffusion_planner.benchmark --help
+      - run: python -m diffusion_planner.tuning --help
   lint:
     name: New modules lint
     runs-on: ubuntu-latest
@@ -47,8 +48,10 @@ jobs:
           src/diffusion_planner/training.py src/diffusion_planner/tracking.py
           src/diffusion_planner/sampling.py src/diffusion_planner/metrics.py
           src/diffusion_planner/evaluate.py src/diffusion_planner/benchmark.py
+          src/diffusion_planner/tuning.py
           tests/test_data.py tests/test_diffusion.py tests/test_guidance.py tests/test_metrics.py
           tests/test_notebook.py tests/test_sampling.py tests/test_tracking.py tests/test_training.py
+          tests/test_tuning.py
   required:
     name: Required checks
     if: always()
