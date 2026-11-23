@@ -58,3 +58,35 @@ def test_guidance_enables_grad_during_inference():
             lambda value: value.square().sum(dim=(1, 2, 3)),
         )
     assert torch.isfinite(prediction).all()
+
+
+def test_oriented_box_distance_signed_overlap_and_separation():
+    from diffusion_planner.guidance import oriented_box_distance
+
+    # Boxes are (x, y, cos(yaw), sin(yaw), length, width), all in meters.
+    a = torch.tensor([[0.0, 0.0, 1.0, 0.0, 2.0, 2.0]]).expand(3, -1)
+    b = torch.tensor(
+        [
+            [3.0, 0.0, 1.0, 0.0, 2.0, 2.0],
+            [2.0, 0.0, 1.0, 0.0, 2.0, 2.0],
+            [1.0, 0.0, 1.0, 0.0, 2.0, 2.0],
+        ]
+    )
+    torch.testing.assert_close(oriented_box_distance(a, b), torch.tensor([1.0, 0.0, -1.0]))
+
+
+def test_oriented_box_distance_is_rotation_invariant():
+    from diffusion_planner.guidance import oriented_box_distance
+
+    a = torch.tensor([[0.0, 0.0, 0.0, 1.0, 4.0, 2.0]])
+    b = torch.tensor([[0.0, 5.0, 0.0, 1.0, 4.0, 2.0]])
+    torch.testing.assert_close(oriented_box_distance(a, b), torch.ones(1))
+
+
+def test_oriented_box_overlap_gradient_is_finite():
+    from diffusion_planner.guidance import oriented_box_distance
+
+    a = torch.tensor([[0., 0., 1., 0., 2., 2.]], requires_grad=True)
+    b = torch.tensor([[1., 0.2, 1., 0., 2., 2.]])
+    oriented_box_distance(a, b).sum().backward()
+    assert torch.isfinite(a.grad).all()
