@@ -15,6 +15,7 @@ from torch.utils.data import DataLoader
 
 from diffusion_planner import DiffusionPlanner, PlannerConfig
 from diffusion_planner.data import NuPlanDataset, normalize_observations
+from diffusion_planner.tracking import Tracker
 from diffusion_planner.training import (
     dataset_identity,
     estimate_progress,
@@ -37,6 +38,7 @@ def main(argv=None):
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--mlflow-uri", help="optional MLflow tracking URI")
     args = parser.parse_args(argv)
     if args.epochs < 1 or args.batch_size < 1 or args.lr <= 0:
         parser.error("epochs, batch size, and learning rate must be positive")
@@ -85,39 +87,68 @@ def main(argv=None):
     (output / f"session-{uuid4().hex}.json").write_text(json.dumps(session, indent=2) + "\n")
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
     started = time.monotonic()
-    for epoch in range(start, args.epochs):
-        total = 0.0
-        count = 0
-        for inputs, ego, neighbors, mask in loader:
-            inputs = normalize_observations(
-                {key: value.to(device) for key, value in inputs.items()}
+    tracker = Tracker(args.mlflow_uri)
+    tracker.start(
+        {
+            "identity": identity,
+            "seed": args.seed,
+            "device": args.device,
+            "batch_size": args.batch_size,
+            "lr": args.lr,
+            "resume_epoch": start,
+        }
+    )
+    status = "FAILED"
+    try:
+        for epoch in range(start, args.epochs):
+            total = 0.0
+            count = 0
+            for inputs, ego, neighbors, mask in loader:
+                inputs = normalize_observations(
+                    {key: value.to(device) for key, value in inputs.items()}
+                )
+                losses = train_step(
+                    model,
+                    optimizer,
+                    inputs,
+                    ego.to(device),
+                    neighbors.to(device),
+                    mask.to(device),
+                    planning_weight=args.planning_weight,
+                )
+                total += losses["loss"].item() * ego.size(0)
+                count += ego.size(0)
+            save_checkpoint(checkpoint, model, optimizer, epoch=epoch + 1, identity=identity)
+            elapsed = time.monotonic() - started
+            progress = estimate_progress(
+                start_epoch=start,
+                completed_epoch=epoch + 1,
+                total_epochs=args.epochs,
+                elapsed_seconds=elapsed,
+                now=datetime.now(timezone.utc),
             )
-            losses = train_step(
-                model,
-                optimizer,
-                inputs,
-                ego.to(device),
-                neighbors.to(device),
-                mask.to(device),
-                planning_weight=args.planning_weight,
+            tracker.log(
+                {
+                    "loss": total / count,
+                    "active_seconds": elapsed,
+                    "remaining_seconds": progress["remaining_seconds"],
+                },
+                step=epoch + 1,
+                tags={
+                    "finish_utc": progress["finish"].isoformat(),
+                    "estimate_provisional": str(progress["provisional"]),
+                },
             )
-            total += losses["loss"].item() * ego.size(0)
-            count += ego.size(0)
-        save_checkpoint(checkpoint, model, optimizer, epoch=epoch + 1, identity=identity)
-        elapsed = time.monotonic() - started
-        progress = estimate_progress(
-            start_epoch=start,
-            completed_epoch=epoch + 1,
-            total_epochs=args.epochs,
-            elapsed_seconds=elapsed,
-            now=datetime.now(timezone.utc),
-        )
-        print(
-            f"epoch {epoch + 1}/{args.epochs} loss={total / count:.6f} "
-            f"active_seconds={elapsed:.1f} remaining_seconds={progress['remaining_seconds']:.1f} "
-            f"finish={progress['finish'].isoformat()} provisional={progress['provisional']}",
-            flush=True,
-        )
+            print(
+                f"epoch {epoch + 1}/{args.epochs} loss={total / count:.6f} "
+                f"active_seconds={elapsed:.1f} "
+                f"remaining_seconds={progress['remaining_seconds']:.1f} "
+                f"finish={progress['finish'].isoformat()} provisional={progress['provisional']}",
+                flush=True,
+            )
+        status = "FINISHED"
+    finally:
+        tracker.close(status=status)
 
 
 if __name__ == "__main__":

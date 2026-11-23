@@ -138,6 +138,13 @@ def test_training_cli_runs_and_resumes(tmp_path):
     subprocess.run(cmd + ["2", "--resume"], check=True, env=env, capture_output=True, text=True)
     assert (tmp_path / "run" / "latest.pt").exists()
     assert len(list((tmp_path / "run").glob("session-*.json"))) == 2
+    continuous = cmd.copy()
+    continuous[continuous.index(str(tmp_path / "run"))] = str(tmp_path / "continuous")
+    subprocess.run(continuous + ["2"], check=True, env=env, capture_output=True, text=True)
+    resumed_state = torch.load(tmp_path / "run" / "latest.pt", weights_only=False)
+    continuous_state = torch.load(tmp_path / "continuous" / "latest.pt", weights_only=False)
+    for name, value in resumed_state["model"].items():
+        torch.testing.assert_close(value, continuous_state["model"][name], rtol=0, atol=0)
     evaluation = subprocess.run(
         [
             sys.executable,

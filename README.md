@@ -97,7 +97,7 @@ python -m diffusion_planner.train --data-dir /path/to/generated-data \
   --manifest /path/to/train-list.json --output checkpoints/example --epochs 2 --resume
 ```
 
-This runner hashes sample contents and the recipe to reject changed data or settings on resume. It runs the actual loss and optimizer on CPU by default. It is a practical baseline, not the official distributed training recipe: it does not yet implement EMA, scheduling, augmentation, validation, or experiment tracking. Only load checkpoints you trust. The sampler in `sampling.py` is a deterministic alternative, not official DPM-Solver++.
+This runner hashes sample contents and the recipe to reject changed data or settings on resume. It runs the actual loss and optimizer on CPU by default. It is a practical baseline, not the official distributed training recipe: it does not yet implement EMA, scheduling, augmentation, or official validation. Optional MLflow session logging is available but has not been integration-tested against a real MLflow server. Only load checkpoints you trust. The sampler in `sampling.py` is a deterministic alternative, not official DPM-Solver++.
 
 To compute diagnostic open-loop ego displacement on a separate NPZ split:
 
@@ -107,6 +107,11 @@ python -m diffusion_planner.evaluate --data-dir /path/to/generated-data \
 ```
 
 This reports ADE/FDE in meters for a single sampled trajectory. It is not a nuPlan closed-loop score. Use the same `--config` file as training when overriding model dimensions.
+
+Optional tracking uses `pip install -e ".[tracking]"` and `--mlflow-uri sqlite:///mlflow.db`; start the UI with `mlflow ui --backend-store-uri sqlite:///mlflow.db`. Each resumed session gets a separate run linked by the same data/recipe identity. MLflow is disabled by default.
+
+To measure loader, cached optimizer step, and end-to-end CPU throughput on supplied preprocessed data, run `python -m diffusion_planner.benchmark --data-dir /path/to/generated-data --manifest /path/to/train-list.json`. This diagnostic does not tune settings, control the OS cache, or measure GPU memory.
+
 
 
 ### Released-checkpoint tensor contract
