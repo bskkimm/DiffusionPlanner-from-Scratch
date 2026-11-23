@@ -26,14 +26,21 @@ def guided_x_start(
     model,
     noisy: torch.Tensor,
     time: torch.Tensor,
-    context: torch.Tensor,
-    mask: torch.Tensor,
+    context: dict[str, torch.Tensor],
+    mask: dict[str, torch.Tensor],
     energy_fn,
     scale: float = 0.1,
 ) -> torch.Tensor:
-    """Move the denoiser prediction down an energy gradient, without training a classifier."""
-    noisy = noisy.detach().requires_grad_(True)
-    prediction = model(noisy, time, context, mask)
-    energy = energy_fn(prediction.reshape(prediction.shape[0], prediction.shape[1], -1, 4)).sum()
-    gradient = torch.autograd.grad(energy, noisy)[0]
-    return prediction - scale * gradient
+    """Apply a heuristic energy-gradient update using the planner denoiser interface.
+
+    This is not the released classifier-guidance wrapper. The caller controls
+    energy units, padding and current-state preservation.
+    """
+    with torch.enable_grad():
+        noisy = noisy.detach().requires_grad_(True)
+        prediction = model.denoise(noisy, time, context, mask)
+        energy = energy_fn(
+            prediction.reshape(prediction.shape[0], prediction.shape[1], -1, 4)
+        ).sum()
+        gradient = torch.autograd.grad(energy, noisy)[0]
+    return (prediction - scale * gradient).detach()
