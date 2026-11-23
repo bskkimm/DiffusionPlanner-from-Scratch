@@ -35,6 +35,8 @@ Open `notebooks/diffusion_planner_walkthrough.ipynb` and run its cells in order.
 
 ## Install and test
 
+For a reproducible Python 3.11 CPU environment, install `requirements/cpu-py311.lock`, then install the project with `python -m pip install --no-deps .`. The lock does not cover GPU, MLflow, or Python 3.10 dependencies.
+
 ```bash
 python3 -m pip install -e ".[dev]"
 python3 -m pytest
