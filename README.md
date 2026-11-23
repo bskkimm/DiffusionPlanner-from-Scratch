@@ -1,6 +1,6 @@
 # Diffusion Planner from Scratch
 
-An independently implemented, architecture-faithful study of **Diffusion-Based Planning for Autonomous Driving with Flexible Guidance** (Zheng et al., ICLR 2025). The default configuration is the public official checkpoint configuration, while tests opt into reduced tensor sizes.
+An independent PyTorch study of **Diffusion-Based Planning for Autonomous Driving with Flexible Guidance** (Zheng et al., ICLR 2025). The model uses dimensions documented for the public checkpoint, while tests use reduced tensor sizes. Numerical parity with the official model and paper results has not been established.
 
 ## Quick start
 
@@ -22,7 +22,7 @@ The notebook is the recommended entry point. It derives the architecture in exec
 - A DPM-Solver-compatible denoiser callback; the external solver is intentionally not vendored.
 - `notebooks/diffusion_planner_walkthrough.ipynb`, a module-by-module architecture study with input/output traces.
 
-> **Scope.** This is architecture-faithful, not a complete nuPlan benchmark reproduction. It omits nuPlan's SDK-dependent raw-data preprocessing, released checkpoint loading, the upstream DPM-Solver dependency, distributed training, and closed-loop runners. The model defaults, component topology, tensor interfaces, loss construction, and initialization follow the official release.
+> **Scope.** This is an incomplete implementation, not a complete nuPlan benchmark reproduction. It omits nuPlan's SDK-dependent raw-data preprocessing, released checkpoint loading, the upstream DPM-Solver dependency, distributed training, and closed-loop runners. The model is intended to follow the official release; operator and checkpoint parity remain unverified. See [the source audit](docs/paper-to-code.md) and [paper brief](docs/paper-brief.md).
 
 ## Learn the architecture
 
@@ -53,7 +53,7 @@ archives and extraction layout. After extraction, the upstream preprocessing scr
 ~/nuplan/dataset/maps
 ```
 
-> **This repository does not download the dataset.** It does not include nuPlan SDK preprocessing, a data loader, or a training runner.
+> **This repository does not download the dataset.** It does not include nuPlan SDK preprocessing. A practical single-process loader and training runner accept upstream-generated NPZ files.
 
 To generate the data used by the official training pipeline, install the [nuPlan devkit](https://github.com/motional/nuplan-devkit)
 and the [official Diffusion-Planner repository](https://github.com/ZhengYinan-AIR/Diffusion-Planner):
@@ -87,9 +87,17 @@ chmod +x data_process.sh
 ./data_process.sh
 ```
 
-The script invokes `data_process.py` with those paths and `--total_scenarios 1000000`. The generated data is
-for the upstream training pipeline; connecting it to this standalone model implementation requires a separate
-loader and training runner.
+The script invokes `data_process.py` with those paths and `--total_scenarios 1000000`. Point the practical runner at the resulting NPZ files and a JSON list of relative paths:
+
+```bash
+python -m diffusion_planner.train --data-dir /path/to/generated-data \
+  --manifest /path/to/train-list.json --output checkpoints/example --epochs 1
+# To resume at an epoch boundary, keep all options the same and increase --epochs:
+python -m diffusion_planner.train --data-dir /path/to/generated-data \
+  --manifest /path/to/train-list.json --output checkpoints/example --epochs 2 --resume
+```
+
+This runner hashes sample contents and the recipe to reject changed data or settings on resume. It runs the actual loss and optimizer on CPU by default. It is a practical baseline, not the official distributed training recipe: it does not yet implement EMA, scheduling, augmentation, validation, or experiment tracking. Only load checkpoints you trust. The sampler in `sampling.py` is a deterministic alternative, not official DPM-Solver++.
 
 ### Released-checkpoint tensor contract
 
@@ -111,6 +119,9 @@ src/diffusion_planner/
   config.py                 # dimensions and diffusion hyperparameters
   diffusion.py              # VP schedule and forward noising
   guidance.py               # differentiable energy functions
+  data.py                   # upstream NPZ dataset and target encoding
+  train.py, training.py     # practical runner and epoch checkpoints
+  sampling.py               # practical deterministic sampler
   model/mixer.py            # token/channel MLP mixing
   model/encoder.py          # structured context encoders
   model/dit.py              # timestep-conditioned DiT denoiser
