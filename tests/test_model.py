@@ -188,3 +188,35 @@ def test_dit_block_matches_pinned_upstream_fixture():
         ]
     )
     torch.testing.assert_close(actual, expected, rtol=1e-6, atol=1e-8)
+
+
+def test_full_dit_training_matches_pinned_upstream_fixture():
+    """Reduced full decoder CPU fixture, official a3a621f and timm 1.0.10."""
+    from diffusion_planner.model.dit import TrajectoryDiT
+
+    model = TrajectoryDiT(config()).train()
+    with torch.no_grad():
+        for name, parameter in model.named_parameters():
+            value = torch.linspace(-0.1, 0.1, parameter.numel()).reshape(parameter.shape)
+            parameter.copy_(1 + value if "norm" in name and name.endswith("weight") else value)
+    torch.manual_seed(111)
+    noisy = torch.randn(2, 3, 16)
+    time = torch.tensor([0.2, 0.7])
+    context = torch.randn(2, 8, 32)
+    route = torch.randn(2, 2, 4, 12)
+    mask = torch.tensor([[False, True], [False, False]])
+    torch.manual_seed(222)
+    output = model(noisy, time, context, route, mask)[0, 0, :8]
+    expected = torch.tensor(
+        [
+            -0.76387769,
+            -0.65807623,
+            -0.55227476,
+            -0.44647336,
+            -0.34067196,
+            -0.23487051,
+            -0.12906905,
+            -0.02326762,
+        ]
+    )
+    torch.testing.assert_close(output, expected, rtol=1e-5, atol=1e-6)
