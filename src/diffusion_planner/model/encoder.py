@@ -14,7 +14,7 @@ class SelfAttentionBlock(nn.Module):
         self.attn = nn.MultiheadAttention(dim, heads, dropout, batch_first=True)
         self.drop_path = DropPath(dropout) if dropout > 0 else nn.Identity()
         self.norm2 = nn.LayerNorm(dim)
-        self.mlp = Mlp(dim, dim * 4)
+        self.mlp = Mlp(dim, dim * 4, drop=dropout)
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         x = x + self.drop_path(self.attn(self.norm1(x), x, x, key_padding_mask=mask)[0])
@@ -31,7 +31,7 @@ class AgentFusionEncoder(nn.Module):
         self.token_pre_project = Mlp(config.time_len, 64, 64)
         self.blocks = nn.ModuleList(MixerBlock(64, 128, config.encoder_drop_path_rate) for _ in range(config.encoder_depth))
         self.norm = nn.LayerNorm(128)
-        self.emb_project = Mlp(128, config.hidden_dim, config.hidden_dim)
+        self.emb_project = Mlp(128, config.hidden_dim, config.hidden_dim, drop=config.encoder_drop_path_rate)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         batch, agents, frames, _ = x.shape
@@ -59,7 +59,7 @@ class StaticFusionEncoder(nn.Module):
     def __init__(self, config: PlannerConfig) -> None:
         super().__init__()
         self.hidden_dim = config.hidden_dim
-        self.projection = Mlp(config.static_objects_state_dim, config.hidden_dim, config.hidden_dim)
+        self.projection = Mlp(config.static_objects_state_dim, config.hidden_dim, config.hidden_dim, drop=config.encoder_drop_path_rate)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         batch, objects, _ = x.shape
@@ -87,7 +87,7 @@ class LaneFusionEncoder(nn.Module):
         self.token_pre_project = Mlp(config.lane_len, 64, 64)
         self.blocks = nn.ModuleList(MixerBlock(64, 128, config.encoder_drop_path_rate) for _ in range(config.encoder_depth))
         self.norm = nn.LayerNorm(128)
-        self.emb_project = Mlp(128, config.hidden_dim, config.hidden_dim)
+        self.emb_project = Mlp(128, config.hidden_dim, config.hidden_dim, drop=config.encoder_drop_path_rate)
 
     def forward(self, x: torch.Tensor, speed_limit: torch.Tensor, has_speed_limit: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         batch, lanes, points, _ = x.shape

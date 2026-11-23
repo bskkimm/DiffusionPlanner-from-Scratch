@@ -145,6 +145,9 @@ def test_training_cli_runs_and_resumes(tmp_path):
     continuous_state = torch.load(tmp_path / "continuous" / "latest.pt", weights_only=False)
     for name, value in resumed_state["model"].items():
         torch.testing.assert_close(value, continuous_state["model"][name], rtol=0, atol=0)
+    for name, value in resumed_state["ema"].items():
+        torch.testing.assert_close(value, continuous_state["ema"][name], rtol=0, atol=0)
+    assert resumed_state["scheduler"] == continuous_state["scheduler"]
     evaluation = subprocess.run(
         [
             sys.executable,
@@ -160,6 +163,7 @@ def test_training_cli_runs_and_resumes(tmp_path):
             str(tmp_path / "run" / "latest.pt"),
             "--steps",
             "2",
+            "--ema",
         ],
         check=True,
         env=env,
@@ -167,6 +171,7 @@ def test_training_cli_runs_and_resumes(tmp_path):
         text=True,
     )
     assert json.loads(evaluation.stdout)["protocol"] == "diagnostic_ego_open_loop"
+    assert json.loads(evaluation.stdout)["weights"] == "ema"
     benchmark = subprocess.run(
         [
             sys.executable,
@@ -233,3 +238,30 @@ def test_benchmark_requires_real_data_arguments():
     )
     assert process.returncode == 0
     assert "--manifest" in process.stdout
+
+
+def test_checkpoint_restores_scheduler_and_ema(tmp_path):
+    from diffusion_planner.training import ExponentialMovingAverage
+
+    model = torch.nn.Linear(1, 1, bias=False)
+    optimizer = torch.optim.SGD(model.parameters(), lr=1.0)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
+    ema = ExponentialMovingAverage(model, decay=0.5)
+    with torch.no_grad():
+        model.weight.fill_(2.0)
+    ema.update(model)
+    expected = ema.state_dict()["weight"].clone()
+    optimizer.step()
+    scheduler.step()
+    save_checkpoint(
+        tmp_path / "state.pt", model, optimizer, epoch=1, identity="a", scheduler=scheduler, ema=ema
+    )
+    with torch.no_grad():
+        ema.shadow["weight"].zero_()
+    optimizer.param_groups[0]["lr"] = 5.0
+    load_checkpoint(
+        tmp_path / "state.pt", model, optimizer, identity="a", scheduler=scheduler, ema=ema
+    )
+    assert optimizer.param_groups[0]["lr"] == 0.5
+    assert scheduler.last_epoch == 1
+    torch.testing.assert_close(ema.shadow["weight"], expected)

@@ -78,7 +78,7 @@ class RouteEncoder(nn.Module):
         self.token_pre_project = Mlp(config.route_num * config.lane_len, 32, 32)
         self.mixer = MixerBlock(32, 64, config.encoder_drop_path_rate)
         self.norm = nn.LayerNorm(64)
-        self.emb_project = Mlp(64, config.hidden_dim, config.hidden_dim)
+        self.emb_project = Mlp(64, config.hidden_dim, config.hidden_dim, drop=config.encoder_drop_path_rate)
 
     def forward(self, route_lanes: torch.Tensor) -> torch.Tensor:
         x = route_lanes[..., :4]

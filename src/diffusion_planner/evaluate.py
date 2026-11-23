@@ -20,6 +20,7 @@ def main(argv=None):
     parser.add_argument("--checkpoint", required=True, help="trusted training checkpoint")
     parser.add_argument("--config", help="JSON PlannerConfig overrides used by checkpoint")
     parser.add_argument("--steps", type=int, default=20)
+    parser.add_argument("--ema", action="store_true", help="evaluate EMA weights")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args(argv)
     config = PlannerConfig(**(json.loads(Path(args.config).read_text()) if args.config else {}))
@@ -31,7 +32,9 @@ def main(argv=None):
     )
     model = DiffusionPlanner(config).eval()
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
-    model.load_state_dict(state["model"])
+    if args.ema and state.get("ema") is None:
+        raise ValueError("checkpoint does not contain EMA weights")
+    model.load_state_dict(state["ema"] if args.ema else state["model"])
     torch.manual_seed(args.seed)
     ades, fdes = [], []
     for inputs, ego, _, _ in DataLoader(dataset, batch_size=1, shuffle=False):
@@ -52,6 +55,7 @@ def main(argv=None):
                 "protocol": "diagnostic_ego_open_loop",
                 "samples": len(ades),
                 "seed": args.seed,
+                "weights": "ema" if args.ema else "model",
                 "steps": args.steps,
                 "ego_ade_m": sum(ades) / len(ades),
                 "ego_fde_m": sum(fdes) / len(fdes),

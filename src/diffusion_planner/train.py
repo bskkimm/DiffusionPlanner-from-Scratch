@@ -17,6 +17,7 @@ from diffusion_planner import DiffusionPlanner, PlannerConfig
 from diffusion_planner.data import NuPlanDataset, normalize_observations
 from diffusion_planner.tracking import Tracker
 from diffusion_planner.training import (
+    ExponentialMovingAverage,
     dataset_identity,
     estimate_progress,
     load_checkpoint,
@@ -36,11 +37,19 @@ def main(argv=None):
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--planning-weight", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--warmup-epochs", type=int, default=5)
+    parser.add_argument("--ema-decay", type=float, default=0.999)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--mlflow-uri", help="optional MLflow tracking URI")
     args = parser.parse_args(argv)
-    if args.epochs < 1 or args.batch_size < 1 or args.lr <= 0:
+    if (
+        args.epochs < 1
+        or args.batch_size < 1
+        or args.lr <= 0
+        or args.warmup_epochs < 2
+        or not 0 <= args.ema_decay < 1
+    ):
         parser.error("epochs, batch size, and learning rate must be positive")
     config = PlannerConfig(**(json.loads(Path(args.config).read_text()) if args.config else {}))
     recipe = {
@@ -52,6 +61,8 @@ def main(argv=None):
         "device": args.device,
         "workers": 0,
         "optimizer": "AdamW",
+        "warmup_epochs": args.warmup_epochs,
+        "ema_decay": args.ema_decay,
     }
     identity = dataset_identity(args.data_dir, args.manifest, recipe)
     output = Path(args.output)
@@ -72,7 +83,21 @@ def main(argv=None):
     device = torch.device(args.device)
     model = DiffusionPlanner(config).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
-    start = load_checkpoint(checkpoint, model, optimizer, identity=identity) if args.resume else 0
+    warmup = torch.optim.lr_scheduler.LinearLR(
+        optimizer, start_factor=0.1, total_iters=args.warmup_epochs - 1
+    )
+    fixed = torch.optim.lr_scheduler.MultiplicativeLR(optimizer, lr_lambda=lambda _: 1.0)
+    scheduler = torch.optim.lr_scheduler.SequentialLR(
+        optimizer, [warmup, fixed], milestones=[args.warmup_epochs]
+    )
+    ema = ExponentialMovingAverage(model, decay=args.ema_decay)
+    start = (
+        load_checkpoint(
+            checkpoint, model, optimizer, identity=identity, scheduler=scheduler, ema=ema
+        )
+        if args.resume
+        else 0
+    )
     if args.epochs <= start:
         raise ValueError("epochs must exceed the checkpoint epoch")
     output.mkdir(parents=True, exist_ok=True)
@@ -116,9 +141,19 @@ def main(argv=None):
                     mask.to(device),
                     planning_weight=args.planning_weight,
                 )
+                ema.update(model)
                 total += losses["loss"].item() * ego.size(0)
                 count += ego.size(0)
-            save_checkpoint(checkpoint, model, optimizer, epoch=epoch + 1, identity=identity)
+            scheduler.step()
+            save_checkpoint(
+                checkpoint,
+                model,
+                optimizer,
+                epoch=epoch + 1,
+                identity=identity,
+                scheduler=scheduler,
+                ema=ema,
+            )
             elapsed = time.monotonic() - started
             progress = estimate_progress(
                 start_epoch=start,
@@ -130,6 +165,7 @@ def main(argv=None):
             tracker.log(
                 {
                     "loss": total / count,
+                    "learning_rate": optimizer.param_groups[0]["lr"],
                     "active_seconds": elapsed,
                     "remaining_seconds": progress["remaining_seconds"],
                 },

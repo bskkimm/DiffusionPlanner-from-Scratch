@@ -9,7 +9,36 @@ import numpy as np
 import torch
 
 
-def save_checkpoint(path, model, optimizer, *, epoch: int, identity: str) -> None:
+class ExponentialMovingAverage:
+    """Keep a detached moving average of all floating-point model state."""
+
+    def __init__(self, model, decay: float = 0.999):
+        if not 0 <= decay < 1:
+            raise ValueError("EMA decay must be in [0, 1)")
+        self.decay = decay
+        self.shadow = {key: value.detach().clone() for key, value in model.state_dict().items()}
+
+    @torch.no_grad()
+    def update(self, model):
+        for key, value in model.state_dict().items():
+            if value.is_floating_point():
+                self.shadow[key].lerp_(value.detach(), 1 - self.decay)
+            else:
+                self.shadow[key].copy_(value)
+
+    def state_dict(self):
+        return self.shadow
+
+    def load_state_dict(self, state):
+        if state.keys() != self.shadow.keys():
+            raise ValueError("EMA model state mismatch")
+        for key, value in state.items():
+            self.shadow[key].copy_(value)
+
+
+def save_checkpoint(
+    path, model, optimizer, *, epoch: int, identity: str, scheduler=None, ema=None
+) -> None:
     """Atomically store CPU/GPU random state and optimizer state at an epoch boundary."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -22,6 +51,8 @@ def save_checkpoint(path, model, optimizer, *, epoch: int, identity: str) -> Non
         "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
         "python_rng": random.getstate(),
         "numpy_rng": np.random.get_state(),
+        "scheduler": scheduler.state_dict() if scheduler else None,
+        "ema": ema.state_dict() if ema else None,
     }
     fd, temporary = tempfile.mkstemp(prefix=".checkpoint-", dir=path.parent)
     try:
@@ -35,7 +66,7 @@ def save_checkpoint(path, model, optimizer, *, epoch: int, identity: str) -> Non
             os.unlink(temporary)
 
 
-def load_checkpoint(path, model, optimizer, *, identity: str) -> int:
+def load_checkpoint(path, model, optimizer, *, identity: str, scheduler=None, ema=None) -> int:
     """Restore a trusted checkpoint after verifying its recipe/data identity.
 
     PyTorch pickle checkpoints must only be loaded from trusted sources.
@@ -43,8 +74,18 @@ def load_checkpoint(path, model, optimizer, *, identity: str) -> int:
     state = torch.load(path, map_location="cpu", weights_only=False)
     if state["identity"] != identity:
         raise ValueError("checkpoint identity does not match the current recipe/data")
+    if (scheduler is None) != (state.get("scheduler") is None) or (ema is None) != (
+        state.get("ema") is None
+    ):
+        raise ValueError("checkpoint scheduler/EMA configuration mismatch")
+    if state["cuda_rng"] is not None and not torch.cuda.is_available():
+        raise RuntimeError("checkpoint requires CUDA random state")
     model.load_state_dict(state["model"])
     optimizer.load_state_dict(state["optimizer"])
+    if scheduler is not None:
+        scheduler.load_state_dict(state["scheduler"])
+    if ema is not None:
+        ema.load_state_dict(state["ema"])
     torch.set_rng_state(state["torch_rng"])
     random.setstate(state["python_rng"])
     np.random.set_state(state["numpy_rng"])
