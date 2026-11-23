@@ -158,3 +158,33 @@ def test_context_encoder_training_matches_pinned_upstream_fixture():
         ]
     )
     torch.testing.assert_close(output, expected, rtol=1e-5, atol=1e-6)
+
+
+def test_dit_block_matches_pinned_upstream_fixture():
+    """CPU float32 fixture from the released DiT block and timm 1.0.10."""
+    from diffusion_planner.model.dit import DiTBlock
+
+    model = DiTBlock(dim=32, heads=4, dropout=0).eval()
+    with torch.no_grad():
+        for name, parameter in model.named_parameters():
+            value = torch.linspace(-0.1, 0.1, parameter.numel()).reshape(parameter.shape)
+            parameter.copy_(1 + value if "norm" in name and name.endswith("weight") else value)
+    torch.manual_seed(111)
+    x = torch.randn(2, 3, 32)
+    context = torch.randn(2, 4, 32)
+    condition = torch.randn(2, 32)
+    mask = torch.zeros(2, 3, dtype=torch.bool)
+    actual = model(x, context, condition, mask)[0, 0, :8]
+    expected = torch.tensor(
+        [
+            -0.0359268337,
+            -0.0339872427,
+            -0.0320475921,
+            -0.0301079862,
+            -0.0281683393,
+            -0.0262286924,
+            -0.0242890641,
+            -0.0223494470,
+        ]
+    )
+    torch.testing.assert_close(actual, expected, rtol=1e-6, atol=1e-8)

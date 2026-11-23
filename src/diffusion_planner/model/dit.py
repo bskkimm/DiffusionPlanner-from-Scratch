@@ -40,12 +40,12 @@ class DiTBlock(nn.Module):
         self.norm1 = nn.LayerNorm(dim)
         self.attn = nn.MultiheadAttention(dim, heads, dropout, batch_first=True)
         self.norm2 = nn.LayerNorm(dim)
-        self.mlp1 = Mlp(dim, hidden)
+        self.mlp1 = Mlp(dim, hidden, approximate="tanh")
         self.adaLN_modulation = nn.Sequential(nn.SiLU(), nn.Linear(dim, 6 * dim))
         self.norm3 = nn.LayerNorm(dim)
         self.cross_attn = nn.MultiheadAttention(dim, heads, dropout, batch_first=True)
         self.norm4 = nn.LayerNorm(dim)
-        self.mlp2 = Mlp(dim, hidden)
+        self.mlp2 = Mlp(dim, hidden, approximate="tanh")
 
     def forward(self, x: torch.Tensor, cross_c: torch.Tensor, condition: torch.Tensor, attn_mask: torch.Tensor) -> torch.Tensor:
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(condition).chunk(6, dim=1)

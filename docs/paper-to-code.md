@@ -7,7 +7,7 @@ paper is https://arxiv.org/abs/2501.15564; the official code was inspected at
 | Area | Local implementation | Official source examined | Evidence / gap |
 | --- | --- | --- | --- |
 | Context encoding | `src/diffusion_planner/model/encoder.py` | `diffusion_planner/model/module/encoder.py` | Reduced CPU training/evaluation context encoder fixtures match upstream with mapped weights and padded inputs; official checkpoint and full-dimension parity remain unverified. |
-| Route conditioning and denoising | `src/diffusion_planner/model/dit.py` | `diffusion_planner/model/module/dit.py`, `decoder.py` | Shape tests exist; checkpoint parity unverified. |
+| Route conditioning and denoising | `src/diffusion_planner/model/dit.py` | `diffusion_planner/model/module/dit.py`, `decoder.py` | A reduced CPU DiT-block fixture matches upstream; full decoder and checkpoint parity remain unverified. |
 | VP noising and objective | `src/diffusion_planner/diffusion.py`, `model/planner.py` | `model/diffusion_utils/sde.py`, `loss.py` | Loss/backward smoke test exists; fixed-input parity unverified. |
 | Training data | `src/diffusion_planner/data.py` | `utils/dataset.py`, `train_epoch.py` | NPZ loading, participant slicing and target encoding are implemented; real samples and source parity remain unverified. The neighbor mask is computed before heading conversion. |
 | Observation normalization | `normalizer.py` | `normalization.json`, `utils/normalizer.py`, `train_epoch.py` | Caller must supply matching statistics and normalize inputs; no training runner wires this up. |
@@ -32,3 +32,5 @@ Synthetic tests cannot establish planning performance.
 - Section 5 evaluates closed-loop driving; diagnostic ADE/FDE in this repository cannot establish those results.
 
 - The draft initially used stochastic depth in Mixer residuals instead of the released MLP dropout and used a different stochastic-depth mask generator. Both were corrected. With identical reduced weights, inputs, masks, mode and random seed, context encoder output differed from upstream by at most `4.8e-7` in the tested CPU run (PyTorch 2.9.1 and timm 1.0.10). This is a local operator check, not full-model or checkpoint parity.
+
+- The DiT block now uses the upstream tanh-approximated GELU; a reduced matched-weight CPU fixture checks its output against the released block.
