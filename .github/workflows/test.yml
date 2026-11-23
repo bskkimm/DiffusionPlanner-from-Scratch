@@ -47,7 +47,7 @@ jobs:
           src/diffusion_planner/training.py src/diffusion_planner/tracking.py
           src/diffusion_planner/sampling.py src/diffusion_planner/metrics.py
           src/diffusion_planner/evaluate.py src/diffusion_planner/benchmark.py
-          tests/test_data.py tests/test_diffusion.py tests/test_metrics.py
+          tests/test_data.py tests/test_diffusion.py tests/test_guidance.py tests/test_metrics.py
           tests/test_notebook.py tests/test_sampling.py tests/test_tracking.py tests/test_training.py
   required:
     name: Required checks

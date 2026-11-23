@@ -2,8 +2,7 @@
 
 This is an initial code audit, not a claim of paper or checkpoint parity. The
 paper is https://arxiv.org/abs/2501.15564; the official code was inspected at
-`a3a621f0b724c5fa6447f7a2fbaf9e0387bd35df` from the local checkout. The
-paper and supplement could not be independently fetched during this audit.
+`a3a621f0b724c5fa6447f7a2fbaf9e0387bd35df` from the local checkout. The paper HTML and its appendix were retrieved on 2026-11-23.
 
 | Area | Local implementation | Official source examined | Evidence / gap |
 | --- | --- | --- | --- |
@@ -22,3 +21,12 @@ future `(x, y, cos(yaw), sin(yaw))` states use the separate state normalizer.
 Zero padding and the order of these operations matter. Frame, units, full
 objective weights, splits and metrics require further source/paper verification.
 Synthetic tests cannot establish planning performance.
+
+## Paper anchors and deliberate differences
+
+- Sections 3.2 and 4.1–4.2 describe VP diffusion, joint trajectory generation, context encoders, route conditioning and DiT. The local model implements an x-start objective; numerical parity with official operators remains unverified.
+- Section 4.3 and Appendix C.3 describe differentiable guidance energies. `guidance.py` is not integrated into the practical sampler, so that sampler cannot reproduce guided results.
+- Appendix C.1 uses nuPlan training data, 1 million scenarios, 100 m map context and two seconds of history. It perturbs the current ego state, applies quintic interpolation, transforms into ego coordinates, and normalizes with x mean 10 and scale 20. The practical loader expects already preprocessed data and does not implement the augmentation.
+- Appendix C.1 reports 500 epochs, batch 2048 on eight A100 GPUs, five warmup epochs and AdamW at 5e-4. The practical runner uses a different single-process configuration, with no EMA or schedule. These differences can materially affect learned behavior.
+- Appendix C.2 uses DPM-Solver++ and low-temperature sampling. The practical sampler uses deterministic VP updates instead; its outputs have not been compared with the released solver.
+- Section 5 evaluates closed-loop driving; diagnostic ADE/FDE in this repository cannot establish those results.
