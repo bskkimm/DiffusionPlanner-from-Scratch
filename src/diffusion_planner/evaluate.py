@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from diffusion_planner import DiffusionPlanner, PlannerConfig
 from diffusion_planner.data import NuPlanDataset, normalize_observations
 from diffusion_planner.metrics import displacement_errors
-from diffusion_planner.sampling import sample_ddim
+from diffusion_planner.sampling import sample_dpm_solver
 
 
 def main(argv=None):
@@ -40,7 +40,7 @@ def main(argv=None):
             encoded, output = model(inputs)
             current = output["current_states"]
             noise = torch.randn(1, config.participant_num, config.future_len + 1, 4)
-            normalized = sample_ddim(model, encoded, inputs, current, noise, steps=args.steps)
+            normalized = sample_dpm_solver(model, encoded, inputs, current, noise, steps=args.steps)
             trajectory = model.normalizer.inverse(normalized[:, :, 1:])[:, 0]
             valid = torch.ones(ego.shape[:-1], dtype=torch.bool)
             ade, fde = displacement_errors(trajectory, ego, valid)

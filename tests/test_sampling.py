@@ -25,3 +25,19 @@ def test_sampler_rejects_score_models():
     model = SimpleNamespace(config=SimpleNamespace(diffusion_model_type="score"))
     with pytest.raises(ValueError, match="x_start"):
         sample_ddim(model, {}, {}, torch.zeros(1, 1, 4), torch.zeros(1, 1, 2, 4))
+
+
+def test_dpm_solver_matches_official_fixed_operator_fixture():
+    from diffusion_planner.sampling import sample_dpm_solver
+
+    class Model:
+        def denoise(self, x, time, encoded, inputs):
+            return 0.25 * x + time[:, None, None]
+
+    current = torch.zeros(1, 1, 4)
+    noise = torch.tensor([[[[0.0, 0.0, 0.0, 0.0], [0.1, -0.2, 0.3, -0.4]]]])
+    result = sample_dpm_solver(Model(), {}, {}, current, noise, steps=4)
+    expected = torch.tensor(
+        [[[[0.0, 0.0, 0.0, 0.0], [0.0324631445, 0.0242978651, 0.0379066579, 0.0188543536]]]]
+    )
+    torch.testing.assert_close(result, expected, rtol=1e-4, atol=1e-6)
