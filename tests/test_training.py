@@ -172,6 +172,7 @@ def test_training_cli_runs_and_resumes(tmp_path):
     )
     assert json.loads(evaluation.stdout)["protocol"] == "diagnostic_ego_open_loop"
     assert json.loads(evaluation.stdout)["weights"] == "ema"
+    assert json.loads(evaluation.stdout)["temperature"] == 0.5
     benchmark = subprocess.run(
         [
             sys.executable,
@@ -290,3 +291,80 @@ def test_checkpoint_restores_scheduler_and_ema(tmp_path):
     assert optimizer.param_groups[0]["lr"] == 0.5
     assert scheduler.last_epoch == 1
     torch.testing.assert_close(ema.shadow["weight"], expected)
+
+
+def test_training_cli_supports_augmentation(tmp_path):
+    import json
+    import os
+    import subprocess
+    import sys
+    from dataclasses import asdict
+
+    import numpy as np
+    from test_model import config
+
+    cfg = config()
+    cfg.future_len = 21
+    ego = np.zeros((21, 3), dtype="float32")
+    ego[:, 0] = np.arange(1, 22) * 0.5
+    np.savez(
+        tmp_path / "sample.npz",
+        ego_current_state=np.array([0, 0, 1, 0, 5, 0, 0, 0, 0, 0], dtype="float32"),
+        ego_agent_future=ego,
+        neighbor_agents_past=np.ones((3, 4, 11), dtype="float32"),
+        neighbor_agents_future=np.ones((2, 21, 3), dtype="float32"),
+        static_objects=np.ones((2, 10), dtype="float32"),
+        lanes=np.ones((3, 4, 12), dtype="float32"),
+        lanes_speed_limit=np.ones((3, 1), dtype="float32"),
+        lanes_has_speed_limit=np.ones((3, 1), dtype="bool"),
+        route_lanes=np.ones((2, 4, 12), dtype="float32"),
+    )
+    (tmp_path / "list.json").write_text(json.dumps(["sample.npz"]))
+    (tmp_path / "config.json").write_text(json.dumps(asdict(cfg)))
+    command = [
+        sys.executable,
+        "-m",
+        "diffusion_planner.train",
+        "--data-dir",
+        str(tmp_path),
+        "--manifest",
+        str(tmp_path / "list.json"),
+        "--config",
+        str(tmp_path / "config.json"),
+        "--output",
+        str(tmp_path / "run"),
+        "--epochs",
+        "1",
+        "--augment",
+    ]
+    subprocess.run(
+        command,
+        check=True,
+        env=dict(os.environ, OMP_NUM_THREADS="1"),
+        capture_output=True,
+        text=True,
+    )
+    assert (tmp_path / "run" / "latest.pt").exists()
+    resumed = command.copy()
+    resumed[resumed.index("--epochs") + 1] = "2"
+    subprocess.run(
+        resumed + ["--resume"],
+        check=True,
+        env=dict(os.environ, OMP_NUM_THREADS="1"),
+        capture_output=True,
+        text=True,
+    )
+    continuous = resumed.copy()
+    continuous[continuous.index(str(tmp_path / "run"))] = str(tmp_path / "continuous")
+    subprocess.run(
+        continuous,
+        check=True,
+        env=dict(os.environ, OMP_NUM_THREADS="1"),
+        capture_output=True,
+        text=True,
+    )
+    left = torch.load(tmp_path / "run" / "latest.pt", weights_only=False)
+    right = torch.load(tmp_path / "continuous" / "latest.pt", weights_only=False)
+    for group in ("model", "ema"):
+        for name, value in left[group].items():
+            torch.testing.assert_close(value, right[group][name], rtol=0, atol=0)

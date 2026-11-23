@@ -14,7 +14,8 @@ import torch
 from torch.utils.data import DataLoader
 
 from diffusion_planner import DiffusionPlanner, PlannerConfig
-from diffusion_planner.data import NuPlanDataset, normalize_observations
+from diffusion_planner.augmentation import perturb_and_reframe
+from diffusion_planner.data import NuPlanDataset, encode_future, normalize_observations
 from diffusion_planner.tracking import Tracker
 from diffusion_planner.training import (
     ExponentialMovingAverage,
@@ -39,6 +40,7 @@ def main(argv=None):
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--warmup-epochs", type=int, default=5)
     parser.add_argument("--ema-decay", type=float, default=0.999)
+    parser.add_argument("--augment", action="store_true", help="apply ego perturbation")
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--mlflow-uri", help="optional MLflow tracking URI")
@@ -52,6 +54,8 @@ def main(argv=None):
     ):
         parser.error("epochs, batch size, and learning rate must be positive")
     config = PlannerConfig(**(json.loads(Path(args.config).read_text()) if args.config else {}))
+    if args.augment and config.future_len < 21:
+        parser.error("augmentation requires at least 21 future steps at 10 Hz")
     recipe = {
         "model": asdict(config),
         "batch_size": args.batch_size,
@@ -63,6 +67,7 @@ def main(argv=None):
         "optimizer": "AdamW",
         "warmup_epochs": args.warmup_epochs,
         "ema_decay": args.ema_decay,
+        "augment": args.augment,
     }
     identity = dataset_identity(args.data_dir, args.manifest, recipe)
     output = Path(args.output)
@@ -76,6 +81,7 @@ def main(argv=None):
         args.manifest,
         past_neighbors=config.agent_num,
         predicted_neighbors=config.predicted_neighbor_num,
+        raw_futures=args.augment,
     )
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -129,16 +135,20 @@ def main(argv=None):
             total = 0.0
             count = 0
             for inputs, ego, neighbors, mask in loader:
-                inputs = normalize_observations(
-                    {key: value.to(device) for key, value in inputs.items()}
-                )
+                inputs = {key: value.to(device) for key, value in inputs.items()}
+                ego, neighbors, mask = ego.to(device), neighbors.to(device), mask.to(device)
+                if args.augment:
+                    inputs, ego, neighbors = perturb_and_reframe(inputs, ego, neighbors)
+                    ego, _ = encode_future(ego, mask_padding=False)
+                    neighbors, mask = encode_future(neighbors, mask_padding=True)
+                inputs = normalize_observations(inputs)
                 losses = train_step(
                     model,
                     optimizer,
                     inputs,
-                    ego.to(device),
-                    neighbors.to(device),
-                    mask.to(device),
+                    ego,
+                    neighbors,
+                    mask,
                     planning_weight=args.planning_weight,
                 )
                 ema.update(model)

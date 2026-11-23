@@ -29,7 +29,15 @@ class NuPlanDataset(torch.utils.data.Dataset):
     Input observations are raw; normalize them before calling the model.
     """
 
-    def __init__(self, data_dir, manifest, *, past_neighbors: int, predicted_neighbors: int):
+    def __init__(
+        self,
+        data_dir,
+        manifest,
+        *,
+        past_neighbors: int,
+        predicted_neighbors: int,
+        raw_futures: bool = False,
+    ):
         import json
         from pathlib import Path
 
@@ -39,6 +47,7 @@ class NuPlanDataset(torch.utils.data.Dataset):
             raise ValueError("manifest must be a nonempty JSON list")
         self.past_neighbors = past_neighbors
         self.predicted_neighbors = predicted_neighbors
+        self.raw_futures = raw_futures
         for filename in self.files:
             if not isinstance(filename, str) or not (
                 self.data_dir / filename
@@ -63,15 +72,15 @@ class NuPlanDataset(torch.utils.data.Dataset):
             )
             inputs = {name: torch.from_numpy(sample[name].copy()) for name in names}
             inputs["neighbor_agents_past"] = inputs["neighbor_agents_past"][: self.past_neighbors]
-            ego, _ = encode_future(
-                torch.from_numpy(sample["ego_agent_future"].copy()), mask_padding=False
+            ego = torch.from_numpy(sample["ego_agent_future"].copy())
+            neighbors = torch.from_numpy(
+                sample["neighbor_agents_future"][: self.predicted_neighbors].copy()
             )
-            neighbors, mask = encode_future(
-                torch.from_numpy(
-                    sample["neighbor_agents_future"][: self.predicted_neighbors].copy()
-                ),
-                mask_padding=True,
-            )
+            if self.raw_futures:
+                mask = ~neighbors[..., :3].ne(0).any(dim=-1)
+            else:
+                ego, _ = encode_future(ego, mask_padding=False)
+                neighbors, mask = encode_future(neighbors, mask_padding=True)
         return inputs, ego, neighbors, mask
 
 

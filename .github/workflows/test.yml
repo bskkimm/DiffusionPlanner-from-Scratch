@@ -49,12 +49,12 @@ jobs:
           python-version: '3.11'
       - run: python -m pip install ruff==0.15.21
       - run: >-
-          ruff check src/diffusion_planner/data.py src/diffusion_planner/train.py
+          ruff check src/diffusion_planner/augmentation.py src/diffusion_planner/data.py src/diffusion_planner/train.py
           src/diffusion_planner/training.py src/diffusion_planner/tracking.py
           src/diffusion_planner/sampling.py src/diffusion_planner/metrics.py
           src/diffusion_planner/evaluate.py src/diffusion_planner/benchmark.py
           src/diffusion_planner/tuning.py
-          tests/test_data.py tests/test_diffusion.py tests/test_guidance.py tests/test_metrics.py
+          tests/test_augmentation.py tests/test_data.py tests/test_diffusion.py tests/test_guidance.py tests/test_metrics.py
           tests/test_notebook.py tests/test_sampling.py tests/test_tracking.py tests/test_training.py
           tests/test_tuning.py
   required:

@@ -19,10 +19,13 @@ def main(argv=None):
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--checkpoint", required=True, help="trusted training checkpoint")
     parser.add_argument("--config", help="JSON PlannerConfig overrides used by checkpoint")
-    parser.add_argument("--steps", type=int, default=20)
+    parser.add_argument("--steps", type=int, default=10)
     parser.add_argument("--ema", action="store_true", help="evaluate EMA weights")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--temperature", type=float, default=0.5)
     args = parser.parse_args(argv)
+    if args.temperature < 0:
+        parser.error("temperature must be nonnegative")
     config = PlannerConfig(**(json.loads(Path(args.config).read_text()) if args.config else {}))
     dataset = NuPlanDataset(
         args.data_dir,
@@ -42,7 +45,9 @@ def main(argv=None):
         with torch.no_grad():
             encoded, output = model(inputs)
             current = output["current_states"]
-            noise = torch.randn(1, config.participant_num, config.future_len + 1, 4)
+            noise = (
+                torch.randn(1, config.participant_num, config.future_len + 1, 4) * args.temperature
+            )
             normalized = sample_dpm_solver(model, encoded, inputs, current, noise, steps=args.steps)
             trajectory = model.normalizer.inverse(normalized[:, :, 1:])[:, 0]
             valid = torch.ones(ego.shape[:-1], dtype=torch.bool)
@@ -55,6 +60,7 @@ def main(argv=None):
                 "protocol": "diagnostic_ego_open_loop",
                 "samples": len(ades),
                 "seed": args.seed,
+                "temperature": args.temperature,
                 "weights": "ema" if args.ema else "model",
                 "steps": args.steps,
                 "ego_ade_m": sum(ades) / len(ades),

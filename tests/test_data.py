@@ -58,3 +58,31 @@ def test_official_observation_normalization_preserves_padding():
     assert normalized["ego_current_state"][0, 2] == 1
     assert normalized["static_objects"].count_nonzero() == 0
     assert original["ego_current_state"][0, 0] == 10
+
+
+def test_dataset_can_expose_raw_yaw_for_augmentation(tmp_path):
+    import json
+
+    import numpy as np
+
+    from diffusion_planner.data import NuPlanDataset
+
+    np.savez(
+        tmp_path / "a.npz",
+        ego_current_state=np.ones(10, dtype="float32"),
+        ego_agent_future=np.ones((21, 3), dtype="float32"),
+        neighbor_agents_past=np.ones((1, 2, 11), dtype="float32"),
+        neighbor_agents_future=np.ones((1, 21, 3), dtype="float32"),
+        static_objects=np.ones((1, 10), dtype="float32"),
+        lanes=np.ones((1, 2, 12), dtype="float32"),
+        lanes_speed_limit=np.ones((1, 1), dtype="float32"),
+        lanes_has_speed_limit=np.ones((1, 1), dtype="bool"),
+        route_lanes=np.ones((1, 2, 12), dtype="float32"),
+    )
+    manifest = tmp_path / "list.json"
+    manifest.write_text(json.dumps(["a.npz"]))
+    data = NuPlanDataset(
+        tmp_path, manifest, past_neighbors=1, predicted_neighbors=1, raw_futures=True
+    )
+    assert data[0][1].shape[-1] == 3
+    assert data[0][2].shape[-1] == 3
