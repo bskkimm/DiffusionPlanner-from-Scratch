@@ -52,13 +52,24 @@ def sample_ddim(model, encoded, inputs, current, noise, *, steps: int = 20, eps:
 
 @torch.no_grad()
 def sample_dpm_solver(
-    model, encoded, inputs, current, noise, *, steps: int = 10, eps: float = 1e-3
+    model,
+    encoded,
+    inputs,
+    current,
+    noise,
+    *,
+    steps: int = 10,
+    eps: float = 1e-3,
+    energy_fn=None,
+    guidance_scale: float = 0.0,
 ):
     """Second-order multistep DPM-Solver++ with log-SNR steps and final denoising.
 
     This implements the released solver's unguided x-start settings and retains
     the supplied current state. Numerical parity is tested on three fixed CPU fixtures;
     model/checkpoint parity and guided sampling remain separate requirements.
+    An optional differentiable energy receives normalized predicted trajectories;
+    its gradient provides experimental guidance, not the released collision wrapper.
     """
     if getattr(getattr(model, "config", None), "diffusion_model_type", "x_start") != "x_start":
         raise ValueError("sampler requires an x_start model")
@@ -66,7 +77,29 @@ def sample_dpm_solver(
         raise ValueError("at least two steps and 0 < eps < 1 are required")
     if noise.ndim != 4 or current.shape != noise.shape[:2] + (4,) or noise.shape[2] < 2:
         raise ValueError("current and noise have incompatible shapes")
+    if guidance_scale < 0 or (guidance_scale and energy_fn is None):
+        raise ValueError("nonnegative guidance requires an energy function")
     schedule = VPSchedule()
+
+    def predict(trajectory, t):
+        if energy_fn is None or guidance_scale == 0:
+            prediction = model.denoise(trajectory.flatten(2), t, encoded, inputs).reshape_as(
+                trajectory
+            )
+            prediction[:, :, 0] = current
+            return prediction
+        with torch.enable_grad():
+            variable = trajectory.detach().requires_grad_(True)
+            raw = model.denoise(variable.flatten(2), t, encoded, inputs).reshape_as(variable)
+            prediction = torch.cat((current.unsqueeze(2), raw[:, :, 1:]), dim=2)
+            energy = energy_fn(prediction)
+            gradient = torch.autograd.grad(energy.sum(), variable)[0]
+        if not torch.isfinite(gradient).all():
+            raise FloatingPointError("non-finite guidance gradient")
+        alpha, sigma = schedule.marginal_prob(torch.ones_like(variable), t)
+        guided = prediction.detach() - guidance_scale * sigma.square() / alpha * gradient
+        guided[:, :, 0] = current
+        return guided
 
     def log_snr(t):
         log_alpha = -0.25 * t.square() * 19.9 - 0.05 * t
@@ -88,8 +121,7 @@ def sample_dpm_solver(
     previous_lambda = None
     for index in range(steps):
         t = times[index].expand(x.shape[0])
-        prediction = model.denoise(x.flatten(2), t, encoded, inputs).reshape_as(x)
-        prediction[:, :, 0] = current
+        prediction = predict(x, t)
         h = lambdas[index + 1] - lambdas[index]
         correction = prediction
         if previous is not None and not (steps < 10 and index == steps - 1):
@@ -102,8 +134,4 @@ def sample_dpm_solver(
         x = sigma_next / sigma * x - alpha_next * torch.expm1(-h) * correction
         x[:, :, 0] = current
         previous, previous_lambda = prediction, lambdas[index]
-    result = model.denoise(x.flatten(2), times[-1].expand(x.shape[0]), encoded, inputs).reshape_as(
-        x
-    )
-    result[:, :, 0] = current
-    return result
+    return predict(x, times[-1].expand(x.shape[0]))

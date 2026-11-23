@@ -58,3 +58,51 @@ def test_dpm_solver_official_fixtures_at_ten_and_twenty_steps():
     for steps, expected in fixtures.items():
         actual = sample_dpm_solver(Model(), {}, {}, torch.zeros(1, 1, 4), noise, steps=steps)
         torch.testing.assert_close(actual[0, 0, 1], torch.tensor(expected), rtol=1e-4, atol=1e-6)
+
+
+def test_dpm_solver_optional_energy_guidance_changes_future_but_keeps_current():
+    from diffusion_planner.sampling import sample_dpm_solver
+
+    class Model:
+        def denoise(self, x, time, encoded, inputs):
+            return x * 0.5
+
+    current = torch.tensor([[[1.0, 0.0, 1.0, 0.0]]])
+    noise = torch.ones(1, 1, 3, 4)
+    baseline = sample_dpm_solver(Model(), {}, {}, current, noise, steps=4)
+    guided = sample_dpm_solver(
+        Model(),
+        {},
+        {},
+        current,
+        noise,
+        steps=4,
+        energy_fn=lambda value: value[:, :, 1:, :2].square().sum((1, 2, 3)),
+        guidance_scale=0.00001,
+    )
+    torch.testing.assert_close(guided[:, :, 0], current)
+    assert torch.isfinite(guided).all()
+    assert not torch.equal(guided[:, :, 1:], baseline[:, :, 1:])
+
+
+def test_zero_guidance_scale_matches_unguided_sampling():
+    from diffusion_planner.sampling import sample_dpm_solver
+
+    class Model:
+        def denoise(self, x, time, encoded, inputs):
+            return x * 0.5
+
+    current = torch.zeros(1, 1, 4)
+    noise = torch.ones(1, 1, 3, 4)
+    expected = sample_dpm_solver(Model(), {}, {}, current, noise, steps=4)
+    actual = sample_dpm_solver(
+        Model(),
+        {},
+        {},
+        current,
+        noise,
+        steps=4,
+        energy_fn=lambda x: x.square().sum(),
+        guidance_scale=0,
+    )
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
