@@ -392,3 +392,26 @@ def test_training_cli_supports_augmentation(tmp_path):
     for group in ("model", "ema"):
         for name, value in left[group].items():
             torch.testing.assert_close(value, right[group][name], rtol=0, atol=0)
+
+
+def test_planner_learns_one_fixed_synthetic_batch():
+    from test_model import config, inputs
+
+    from diffusion_planner import DiffusionPlanner
+    from diffusion_planner.training import train_step
+
+    torch.manual_seed(31)
+    cfg = config()
+    cfg.encoder_drop_path_rate = 0
+    cfg.decoder_drop_path_rate = 0
+    model = DiffusionPlanner(cfg)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    batch = inputs(cfg, batch=1)
+    ego = torch.randn(1, cfg.future_len, 4)
+    neighbors = torch.randn(1, cfg.predicted_neighbor_num, cfg.future_len, 4)
+    mask = torch.zeros(1, cfg.predicted_neighbor_num, cfg.future_len, dtype=torch.bool)
+    history = []
+    for _ in range(12):
+        torch.manual_seed(99)  # Hold diffusion time/noise fixed for this learning probe.
+        history.append(train_step(model, optimizer, batch, ego, neighbors, mask)["loss"].item())
+    assert history[-1] < history[0] * 0.8
