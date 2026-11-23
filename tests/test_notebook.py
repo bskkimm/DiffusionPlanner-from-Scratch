@@ -94,3 +94,24 @@ def test_notebook_model_matches_package_outputs_and_gradients():
         assert (parameter.grad is None) == (other.grad is None)
         if parameter.grad is not None:
             torch.testing.assert_close(parameter.grad, other.grad)
+
+
+def test_notebook_executes_in_fresh_cpu_process():
+    import os
+    import subprocess
+    import sys
+
+    path = Path(__file__).parents[1] / "notebooks" / "diffusion_planner_walkthrough.ipynb"
+    notebook = json.loads(path.read_text(encoding="utf-8"))
+    code_cells = [cell for cell in notebook["cells"] if cell["cell_type"] == "code"]
+    assert all(cell["execution_count"] is None and not cell["outputs"] for cell in code_cells)
+    script = "\n\n".join("".join(cell["source"]) for cell in code_cells)
+    process = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, OMP_NUM_THREADS="1", CUDA_VISIBLE_DEVICES=""),
+        timeout=120,
+        check=True,
+    )
+    assert "synthetic future shape:" in process.stdout
