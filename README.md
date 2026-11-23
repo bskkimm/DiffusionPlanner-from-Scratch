@@ -99,6 +99,16 @@ python -m diffusion_planner.train --data-dir /path/to/generated-data \
 
 This runner hashes sample contents and the recipe to reject changed data or settings on resume. It runs the actual loss and optimizer on CPU by default. It is a practical baseline, not the official distributed training recipe: it does not yet implement EMA, scheduling, augmentation, validation, or experiment tracking. Only load checkpoints you trust. The sampler in `sampling.py` is a deterministic alternative, not official DPM-Solver++.
 
+To compute diagnostic open-loop ego displacement on a separate NPZ split:
+
+```bash
+python -m diffusion_planner.evaluate --data-dir /path/to/generated-data \
+  --manifest /path/to/validation-list.json --checkpoint checkpoints/example/latest.pt
+```
+
+This reports ADE/FDE in meters for a single sampled trajectory. It is not a nuPlan closed-loop score. Use the same `--config` file as training when overriding model dimensions.
+
+
 ### Released-checkpoint tensor contract
 
 ```text

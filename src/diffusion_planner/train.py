@@ -17,6 +17,7 @@ from diffusion_planner import DiffusionPlanner, PlannerConfig
 from diffusion_planner.data import NuPlanDataset, normalize_observations
 from diffusion_planner.training import (
     dataset_identity,
+    estimate_progress,
     load_checkpoint,
     save_checkpoint,
     train_step,
@@ -104,9 +105,17 @@ def main(argv=None):
             count += ego.size(0)
         save_checkpoint(checkpoint, model, optimizer, epoch=epoch + 1, identity=identity)
         elapsed = time.monotonic() - started
+        progress = estimate_progress(
+            start_epoch=start,
+            completed_epoch=epoch + 1,
+            total_epochs=args.epochs,
+            elapsed_seconds=elapsed,
+            now=datetime.now(timezone.utc),
+        )
         print(
             f"epoch {epoch + 1}/{args.epochs} loss={total / count:.6f} "
-            f"active_seconds={elapsed:.1f}",
+            f"active_seconds={elapsed:.1f} remaining_seconds={progress['remaining_seconds']:.1f} "
+            f"finish={progress['finish'].isoformat()} provisional={progress['provisional']}",
             flush=True,
         )
 

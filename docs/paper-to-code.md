@@ -14,7 +14,7 @@ paper and supplement could not be independently fetched during this audit.
 | Observation normalization | `normalizer.py` | `normalization.json`, `utils/normalizer.py`, `train_epoch.py` | Caller must supply matching statistics and normalize inputs; no training runner wires this up. |
 | Training | `train.py`, `training.py` | `train_epoch.py`, `train_predictor.py` | Practical single-process AdamW training and epoch resume are tested synthetically; official EMA, scheduling, augmentation and distributed recipe are missing. |
 | Sampling | Denoiser callback and `sampling.py` | `model/diffusion_utils/sampling.py` | Practical deterministic sampler differs from upstream second-order DPM-Solver++; parity is unverified. |
-| Evaluation | Missing | `planner/planner.py` and simulator configuration | No official closed-loop evaluation or measured planning metrics. |
+| Evaluation | `metrics.py`, `evaluate.py` | `planner/planner.py` and simulator configuration | Diagnostic single-sample ego ADE/FDE only; no official closed-loop evaluation or measured planning metrics. |
 | Notebook | `notebooks/diffusion_planner_walkthrough.ipynb` | Model modules above | Static syntax test only; fresh-process execution and matched-weight output/gradient parity remain open. |
 
 The official pipeline normalizes observations after any augmentation, while

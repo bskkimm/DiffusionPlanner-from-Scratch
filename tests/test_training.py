@@ -138,3 +138,91 @@ def test_training_cli_runs_and_resumes(tmp_path):
     subprocess.run(cmd + ["2", "--resume"], check=True, env=env, capture_output=True, text=True)
     assert (tmp_path / "run" / "latest.pt").exists()
     assert len(list((tmp_path / "run").glob("session-*.json"))) == 2
+    evaluation = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "diffusion_planner.evaluate",
+            "--data-dir",
+            str(tmp_path),
+            "--manifest",
+            str(tmp_path / "list.json"),
+            "--config",
+            str(tmp_path / "config.json"),
+            "--checkpoint",
+            str(tmp_path / "run" / "latest.pt"),
+            "--steps",
+            "2",
+        ],
+        check=True,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(evaluation.stdout)["protocol"] == "diagnostic_ego_open_loop"
+    benchmark = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "diffusion_planner.benchmark",
+            "--data-dir",
+            str(tmp_path),
+            "--manifest",
+            str(tmp_path / "list.json"),
+            "--config",
+            str(tmp_path / "config.json"),
+            "--warmup",
+            "0",
+            "--steps",
+            "1",
+        ],
+        check=True,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert set(json.loads(benchmark.stdout)["results"]) == {"loader", "cached_step", "end_to_end"}
+
+
+def test_evaluation_cli_requires_explicit_checkpoint():
+    import os
+    import subprocess
+    import sys
+
+    process = subprocess.run(
+        [sys.executable, "-m", "diffusion_planner.evaluate", "--help"],
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+    )
+    assert process.returncode == 0
+    assert "--checkpoint" in process.stdout
+
+
+def test_progress_eta_uses_current_session_remaining_work():
+    from datetime import datetime, timezone
+
+    from diffusion_planner.training import estimate_progress
+
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    progress = estimate_progress(
+        start_epoch=4, completed_epoch=6, total_epochs=10, elapsed_seconds=20, now=now
+    )
+    assert progress["remaining_seconds"] == 40
+    assert progress["finish"].isoformat() == "2026-01-01T00:00:40+00:00"
+    assert progress["provisional"] is False
+
+
+def test_benchmark_requires_real_data_arguments():
+    import os
+    import subprocess
+    import sys
+
+    process = subprocess.run(
+        [sys.executable, "-m", "diffusion_planner.benchmark", "--help"],
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+    )
+    assert process.returncode == 0
+    assert "--manifest" in process.stdout

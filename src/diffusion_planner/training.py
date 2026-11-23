@@ -100,3 +100,20 @@ def dataset_identity(data_dir, manifest, recipe: dict) -> str:
             for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                 digest.update(chunk)
     return digest.hexdigest()
+
+
+def estimate_progress(*, start_epoch, completed_epoch, total_epochs, elapsed_seconds, now):
+    """Estimate remaining work using current-session epoch time, including checkpoints."""
+    from datetime import timedelta
+
+    completed = completed_epoch - start_epoch
+    if completed <= 0 or completed_epoch > total_epochs or elapsed_seconds < 0:
+        raise ValueError("invalid progress")
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("now must be timezone-aware")
+    remaining = elapsed_seconds / completed * (total_epochs - completed_epoch)
+    return {
+        "remaining_seconds": remaining,
+        "finish": now + timedelta(seconds=remaining),
+        "provisional": completed < 2,
+    }
