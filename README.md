@@ -99,7 +99,7 @@ python -m diffusion_planner.train --data-dir /path/to/generated-data \
   --manifest /path/to/train-list.json --output checkpoints/example --epochs 2 --resume
 ```
 
-This runner hashes sample contents and the recipe to reject changed data or settings on resume. It runs the actual loss and optimizer on CPU by default. It is a practical baseline, not the official distributed training recipe: it implements EMA and an epoch-based warmup, with optional `--augment` ego-state perturbation; official validation remains unavailable. The augmentation expects 10 Hz raw futures with at least 21 steps and has only been compared on synthetic CPU fixtures. Optional MLflow session logging has been checked against a local SQLite store with MLflow 3.14. Only load checkpoints you trust. The sampler in `sampling.py` includes an unguided DPM-Solver++ path checked against three fixed upstream CPU operator fixtures, plus a simpler deterministic alternative. Optional experimental guidance differentiates a caller-provided energy through the denoiser in normalized coordinates; it differs from the released collision wrapper. Guided and checkpoint parity are unverified.
+This runner hashes sample contents and the recipe to reject changed data or settings on resume. It runs the actual loss and optimizer on CPU by default. It is a practical baseline, not the official distributed training recipe: it implements EMA and an epoch-based warmup, with optional `--augment` ego-state perturbation; official validation remains unavailable. The augmentation expects 10 Hz raw futures with at least 21 steps and has only been compared on synthetic CPU fixtures. Optional MLflow session logging has been checked against a local SQLite store with MLflow 3.14. Only load checkpoints you trust. The sampler in `sampling.py` includes an unguided DPM-Solver++ path checked against three fixed upstream CPU operator fixtures, plus a simpler deterministic alternative. The solver supports released-style collision guidance and experimental caller-provided energy guidance. The collision path matches a non-degenerate upstream CPU fixture; exact ties, checkpoint parity and real-data behavior remain unverified.
 
 To compute diagnostic open-loop ego displacement on a separate NPZ split:
 
@@ -108,7 +108,7 @@ python -m diffusion_planner.evaluate --data-dir /path/to/generated-data \
   --manifest /path/to/validation-list.json --checkpoint checkpoints/example/latest.pt --ema
 ```
 
-This reports ADE/FDE in meters for a single sampled trajectory. It is not a nuPlan closed-loop score. Use the same `--config` file as training when overriding model dimensions.
+This reports ADE/FDE in meters for a single sampled trajectory; add `--collision-guidance` to enable the released-style collision score. It is not a nuPlan closed-loop score. Use the same `--config` file as training when overriding model dimensions.
 
 Optional tracking uses `pip install -e ".[tracking]"` and `--mlflow-uri sqlite:///mlflow.db`; start the UI with `mlflow ui --backend-store-uri sqlite:///mlflow.db`. Each resumed session gets a separate run linked by the same data/recipe identity. MLflow is disabled by default.
 

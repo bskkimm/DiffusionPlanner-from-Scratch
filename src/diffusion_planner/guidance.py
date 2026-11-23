@@ -79,3 +79,78 @@ def oriented_box_distance(first: torch.Tensor, second: torch.Tensor) -> torch.Te
     overlaps = (separation < 0).all(dim=-1)
     smallest_gap = separation.masked_fill(separation < 0, float("inf")).min(dim=-1).values
     return torch.where(overlaps, separation.max(dim=-1).values, smallest_gap)
+
+
+def collision_guidance_reward(trajectory, neighbor_dimensions, neighbor_mask, time):
+    """Released-style lateral collision score in physical ego-frame units.
+
+    ``trajectory`` is (B, 1+N, 1+T, 4), with x/y in meters and heading
+    cosine/sine. Neighbor dimensions are (B, N, 2), length then width;
+    True in neighbor_mask means absent. The score is active for 0.005 < t < 0.1.
+    The gradient is a smoothed lateral signal, not a calibrated collision rate.
+    """
+    import torch.nn.functional as functional
+
+    if not trajectory.requires_grad:
+        raise ValueError("collision guidance requires a differentiable trajectory")
+    batch, participants, horizon, features = trajectory.shape
+    if (
+        features != 4
+        or neighbor_dimensions.shape != (batch, participants - 1, 2)
+        or neighbor_mask.shape != (batch, participants - 1)
+        or time.shape != (batch,)
+    ):
+        raise ValueError("collision guidance inputs have incompatible shapes")
+    active = ((time > 0.005) & (time < 0.1))[:, None, None, None]
+    bridged = torch.where(active, trajectory, trajectory.detach())
+    heading = bridged[..., 2:].detach()
+    heading = heading / torch.linalg.vector_norm(heading, dim=-1, keepdim=True).clamp_min(1e-8)
+    # A zero heading has no orientation; use a fixed x-facing direction.
+    fallback = torch.zeros_like(heading)
+    fallback[..., 0] = 1
+    heading = torch.where(heading.abs().sum(dim=-1, keepdim=True) > 0, heading, fallback)
+    state = torch.cat((bridged[..., :2], heading), dim=-1)
+    valid = ~neighbor_mask
+    if not valid.any() or horizon < 2:
+        return trajectory[:, 0].sum(dim=(1, 2)) * 0
+    ego = state[:, :1, 1:].expand(-1, participants - 1, -1, -1).clone()
+    ego[..., :2] = ego[..., :2] + ego[..., 2:] * 1.67
+    other = state[:, 1:, 1:].detach()
+    ego_size = state.new_tensor([5.176 + 1, 2.297 + 1]).expand(
+        batch, participants - 1, horizon - 1, 2
+    )
+    other_size = (neighbor_dimensions + 1).unsqueeze(2).expand(-1, -1, horizon - 1, -1)
+    ego_boxes = torch.cat((ego, ego_size), dim=-1)[valid]
+    other_boxes = torch.cat((other, other_size), dim=-1)[valid]
+    distances = oriented_box_distance(ego_boxes, other_boxes)
+    proximity = (1 - distances).clamp_min(0)
+    overlap = proximity > 1
+    total = proximity[overlap].sum() / (overlap.sum() + 1e-5) + proximity[~overlap].sum() / (
+        (proximity[~overlap] > 0).sum() + 1e-5
+    )
+    raw_reward = -total.exp()
+    gradient = torch.autograd.grad(raw_reward, state, retain_graph=True)[0][:, 0, :, :2]
+    c, s = state[:, 0, :, 2], state[:, 0, :, 3]
+    lateral = -s * gradient[..., 0] + c * gradient[..., 1]
+    kernel = torch.exp(
+        -torch.linspace(-2, 2, 21, device=state.device, dtype=state.dtype).square() / 4
+    )
+    lateral = functional.conv1d(
+        functional.pad(lateral[:, None], (10, 10), mode="replicate"), kernel.view(1, 1, -1)
+    )[:, 0]
+    world = torch.stack((-s * lateral, c * lateral), dim=-1)
+    return 3 * (world.detach() * state[:, 0, :, :2]).sum(dim=(1, 2))
+
+
+def make_collision_score(normalizer, neighbor_dimensions, neighbor_mask):
+    """Build the released-style collision callback for normalized solver states.
+
+    Dimensions must be physical lengths and widths, not normalized features.
+    """
+
+    def score(proxy, time):
+        return collision_guidance_reward(
+            normalizer.inverse(proxy), neighbor_dimensions, neighbor_mask, time
+        )
+
+    return score

@@ -173,6 +173,30 @@ def test_training_cli_runs_and_resumes(tmp_path):
     assert json.loads(evaluation.stdout)["protocol"] == "diagnostic_ego_open_loop"
     assert json.loads(evaluation.stdout)["weights"] == "ema"
     assert json.loads(evaluation.stdout)["temperature"] == 0.5
+    guided = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "diffusion_planner.evaluate",
+            "--data-dir",
+            str(tmp_path),
+            "--manifest",
+            str(tmp_path / "list.json"),
+            "--config",
+            str(tmp_path / "config.json"),
+            "--checkpoint",
+            str(tmp_path / "run" / "latest.pt"),
+            "--steps",
+            "4",
+            "--ema",
+            "--collision-guidance",
+        ],
+        check=True,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(guided.stdout)["collision_guidance"] is True
     benchmark = subprocess.run(
         [
             sys.executable,

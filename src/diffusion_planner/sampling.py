@@ -62,6 +62,8 @@ def sample_dpm_solver(
     eps: float = 1e-3,
     energy_fn=None,
     guidance_scale: float = 0.0,
+    score_fn=None,
+    score_scale: float = 0.0,
 ):
     """Second-order multistep DPM-Solver++ with log-SNR steps and final denoising.
 
@@ -69,7 +71,8 @@ def sample_dpm_solver(
     the supplied current state. Numerical parity is tested on three fixed CPU fixtures;
     model/checkpoint parity and guided sampling remain separate requirements.
     An optional differentiable energy receives normalized predicted trajectories;
-    its gradient provides experimental guidance, not the released collision wrapper.
+    its gradient provides experimental guidance. An optional score function receives
+    a stop-gradient denoiser proxy and time, matching the released wrapper semantics.
     """
     if getattr(getattr(model, "config", None), "diffusion_model_type", "x_start") != "x_start":
         raise ValueError("sampler requires an x_start model")
@@ -79,10 +82,12 @@ def sample_dpm_solver(
         raise ValueError("current and noise have incompatible shapes")
     if guidance_scale < 0 or (guidance_scale and energy_fn is None):
         raise ValueError("nonnegative guidance requires an energy function")
+    if score_scale < 0 or (score_scale and score_fn is None):
+        raise ValueError("nonnegative score guidance requires a score function")
     schedule = VPSchedule()
 
     def predict(trajectory, t):
-        if energy_fn is None or guidance_scale == 0:
+        if (energy_fn is None or guidance_scale == 0) and (score_fn is None or score_scale == 0):
             prediction = model.denoise(trajectory.flatten(2), t, encoded, inputs).reshape_as(
                 trajectory
             )
@@ -92,12 +97,18 @@ def sample_dpm_solver(
             variable = trajectory.detach().requires_grad_(True)
             raw = model.denoise(variable.flatten(2), t, encoded, inputs).reshape_as(variable)
             prediction = torch.cat((current.unsqueeze(2), raw[:, :, 1:]), dim=2)
-            energy = energy_fn(prediction)
-            gradient = torch.autograd.grad(energy.sum(), variable)[0]
-        if not torch.isfinite(gradient).all():
+            correction = torch.zeros_like(variable)
+            if energy_fn is not None and guidance_scale:
+                energy_gradient = torch.autograd.grad(energy_fn(prediction).sum(), variable)[0]
+                correction = correction - guidance_scale * energy_gradient
+            if score_fn is not None and score_scale:
+                proxy = variable + (prediction.detach() - variable.detach())
+                score_gradient = torch.autograd.grad(score_fn(proxy, t).sum(), variable)[0]
+                correction = correction + score_scale * score_gradient
+        if not torch.isfinite(correction).all():
             raise FloatingPointError("non-finite guidance gradient")
         alpha, sigma = schedule.marginal_prob(torch.ones_like(variable), t)
-        guided = prediction.detach() - guidance_scale * sigma.square() / alpha * gradient
+        guided = prediction.detach() + sigma.square() / alpha * correction
         guided[:, :, 0] = current
         return guided
 
