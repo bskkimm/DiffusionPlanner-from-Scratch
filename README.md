@@ -22,7 +22,7 @@ The notebook is the recommended entry point. It derives the architecture in exec
 - An unguided second-order DPM-Solver++ sampler and denoiser callback; numerical verification is limited to fixed CPU operator fixtures.
 - `notebooks/diffusion_planner_walkthrough.ipynb`, a module-by-module architecture study with input/output traces.
 
-> **Scope.** This is an incomplete implementation, not a complete nuPlan benchmark reproduction. It omits nuPlan's SDK-dependent raw-data preprocessing, verified released checkpoint compatibility, the upstream DPM-Solver dependency, distributed training, and closed-loop runners. The model is intended to follow the official release; operator and checkpoint parity remain unverified. See [the source audit](docs/paper-to-code.md) and [paper brief](docs/paper-brief.md).
+> **Scope.** This is an incomplete implementation, not a complete nuPlan benchmark reproduction. It omits nuPlan's SDK-dependent raw-data preprocessing, verified released checkpoint compatibility, the upstream DPM-Solver dependency, distributed training, and closed-loop runners. The model is intended to follow the official release; operator and checkpoint parity remain unverified. See [the source audit](docs/paper-to-code.md), [paper brief](docs/paper-brief.md), and [diagnostic results manifest](reports/results.json).
 
 ## Learn the architecture
 
