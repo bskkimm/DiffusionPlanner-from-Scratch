@@ -118,6 +118,11 @@ def test_training_cli_runs_and_resumes(tmp_path):
         route_lanes=np.ones((cfg.route_num, cfg.lane_len, 12), dtype="float32"),
     )
     (tmp_path / "list.json").write_text(json.dumps(["sample.npz"]))
+    with np.load(tmp_path / "sample.npz") as sample:
+        validation_data = {name: sample[name].copy() for name in sample.files}
+    validation_data["ego_agent_future"] += 0.2
+    np.savez(tmp_path / "validation.npz", **validation_data)
+    (tmp_path / "validation.json").write_text(json.dumps(["validation.npz"]))
     (tmp_path / "config.json").write_text(json.dumps(asdict(cfg)))
     cmd = [
         sys.executable,
@@ -127,6 +132,8 @@ def test_training_cli_runs_and_resumes(tmp_path):
         str(tmp_path),
         "--manifest",
         str(tmp_path / "list.json"),
+        "--val-manifest",
+        str(tmp_path / "validation.json"),
         "--config",
         str(tmp_path / "config.json"),
         "--output",
@@ -134,7 +141,17 @@ def test_training_cli_runs_and_resumes(tmp_path):
         "--epochs",
     ]
     env = dict(os.environ, OMP_NUM_THREADS="1")
-    subprocess.run(cmd + ["1"], check=True, env=env, capture_output=True, text=True)
+    first = subprocess.run(cmd + ["1"], check=True, env=env, capture_output=True, text=True)
+    assert "validation_loss=" in first.stdout
+    (tmp_path / "duplicate.npz").write_bytes((tmp_path / "sample.npz").read_bytes())
+    (tmp_path / "duplicate.json").write_text(json.dumps(["duplicate.npz"]))
+    leaked = cmd.copy()
+    leaked[leaked.index(str(tmp_path / "validation.json"))] = str(tmp_path / "duplicate.json")
+    leaked[leaked.index(str(tmp_path / "run"))] = str(tmp_path / "leaked")
+    rejected_split = subprocess.run(leaked + ["1"], env=env, capture_output=True, text=True)
+    assert rejected_split.returncode != 0
+    assert "identical files" in rejected_split.stderr
+    assert not (tmp_path / "leaked").exists()
     subprocess.run(cmd + ["2", "--resume"], check=True, env=env, capture_output=True, text=True)
     assert (tmp_path / "run" / "latest.pt").exists()
     assert len(list((tmp_path / "run").glob("session-*.json"))) == 2
@@ -148,6 +165,14 @@ def test_training_cli_runs_and_resumes(tmp_path):
     for name, value in resumed_state["ema"].items():
         torch.testing.assert_close(value, continuous_state["ema"][name], rtol=0, atol=0)
     assert resumed_state["scheduler"] == continuous_state["scheduler"]
+    before = (tmp_path / "run" / "latest.pt").read_bytes()
+    rejected = subprocess.run(
+        cmd + ["3", "--resume", "--lr", "0.02"], env=env, capture_output=True, text=True
+    )
+    assert rejected.returncode != 0
+    assert "identity" in rejected.stderr
+    assert (tmp_path / "run" / "latest.pt").read_bytes() == before
+    assert len(list((tmp_path / "run").glob("session-*.json"))) == 2
     evaluation = subprocess.run(
         [
             sys.executable,
@@ -197,6 +222,49 @@ def test_training_cli_runs_and_resumes(tmp_path):
         text=True,
     )
     assert json.loads(guided.stdout)["collision_guidance"] is True
+    official = {}
+    for key, value in resumed_state["model"].items():
+        if key.startswith("encoder."):
+            name = key.removeprefix("encoder.")
+            for local, upstream in (
+                ("agents.", "neighbor_encoder."),
+                ("static.", "static_encoder."),
+                ("lanes.", "lane_encoder."),
+                ("position.", "pos_emb."),
+            ):
+                if name.startswith(local):
+                    name = upstream + name[len(local) :]
+                    break
+            official["encoder.encoder." + name] = value
+        else:
+            name = key.removeprefix("decoder.").replace(
+                "route_encoder.mixer.", "route_encoder.Mixer."
+            )
+            official["decoder.decoder.dit." + name] = value
+    torch.save({"model": official}, tmp_path / "official.pt")
+    imported = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "diffusion_planner.evaluate",
+            "--data-dir",
+            str(tmp_path),
+            "--manifest",
+            str(tmp_path / "list.json"),
+            "--config",
+            str(tmp_path / "config.json"),
+            "--checkpoint",
+            str(tmp_path / "official.pt"),
+            "--steps",
+            "2",
+            "--official-checkpoint",
+        ],
+        check=True,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(imported.stdout)["official_checkpoint"] is True
     benchmark = subprocess.run(
         [
             sys.executable,
@@ -415,3 +483,44 @@ def test_planner_learns_one_fixed_synthetic_batch():
         torch.manual_seed(99)  # Hold diffusion time/noise fixed for this learning probe.
         history.append(train_step(model, optimizer, batch, ego, neighbors, mask)["loss"].item())
     assert history[-1] < history[0] * 0.8
+
+
+def test_validation_is_deterministic_and_preserves_training_rng():
+    from test_model import config, inputs
+
+    from diffusion_planner import DiffusionPlanner
+    from diffusion_planner.training import validate
+
+    cfg = config()
+    model = DiffusionPlanner(cfg)
+    batch = (
+        inputs(cfg, batch=1),
+        torch.randn(1, cfg.future_len, 4),
+        torch.randn(1, cfg.predicted_neighbor_num, cfg.future_len, 4),
+        torch.zeros(1, cfg.predicted_neighbor_num, cfg.future_len, dtype=torch.bool),
+    )
+    torch.manual_seed(123)
+    expected = torch.rand(3)
+    torch.manual_seed(123)
+    first = validate(model, [batch], device=torch.device("cpu"), seed=9)
+    torch.testing.assert_close(torch.rand(3), expected)
+    second = validate(model, [batch], device=torch.device("cpu"), seed=9)
+    assert first == second
+    assert model.training
+
+
+def test_dataset_identity_exposes_content_hashes_for_split_leakage(tmp_path):
+    import json
+
+    from diffusion_planner.training import dataset_identity
+
+    (tmp_path / "a.npz").write_bytes(b"same sample")
+    (tmp_path / "b.npz").write_bytes(b"same sample")
+    train = tmp_path / "train.json"
+    val = tmp_path / "val.json"
+    train.write_text(json.dumps(["a.npz"]))
+    val.write_text(json.dumps(["b.npz"]))
+    train_hashes, val_hashes = set(), set()
+    dataset_identity(tmp_path, train, {}, files_out=train_hashes)
+    dataset_identity(tmp_path, val, {}, files_out=val_hashes)
+    assert train_hashes & val_hashes

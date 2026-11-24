@@ -60,25 +60,55 @@ class DiffusionPlanner(nn.Module):
         neighbor_mask = neighbors.ne(0).any(dim=-1).logical_not()
         return torch.cat([ego, neighbors], dim=1), neighbor_mask
 
-    def forward(self, inputs: dict[str, torch.Tensor]) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+    def forward(
+        self, inputs: dict[str, torch.Tensor]
+    ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
         encoded = self.encoder(inputs)
         current, neighbor_mask = self._current_states(inputs)
-        if self.training:
-            noisy = inputs["sampled_trajectories"].reshape(current.shape[0], self.config.participant_num, -1)
-            score = self.decoder(noisy, inputs["diffusion_time"], encoded["encoding"], inputs["route_lanes"], neighbor_mask)
-            return encoded, {"score": score.reshape(current.shape[0], self.config.participant_num, -1, 4)}
+        if self.training or ("sampled_trajectories" in inputs and "diffusion_time" in inputs):
+            noisy = inputs["sampled_trajectories"].reshape(
+                current.shape[0], self.config.participant_num, -1
+            )
+            score = self.decoder(
+                noisy,
+                inputs["diffusion_time"],
+                encoded["encoding"],
+                inputs["route_lanes"],
+                neighbor_mask,
+            )
+            return encoded, {
+                "score": score.reshape(current.shape[0], self.config.participant_num, -1, 4)
+            }
         return encoded, {"current_states": current, "neighbor_current_mask": neighbor_mask}
 
-    def denoise(self, x: torch.Tensor, time: torch.Tensor, encoded: dict[str, torch.Tensor], inputs: dict[str, torch.Tensor]) -> torch.Tensor:
+    def denoise(
+        self,
+        x: torch.Tensor,
+        time: torch.Tensor,
+        encoded: dict[str, torch.Tensor],
+        inputs: dict[str, torch.Tensor],
+    ) -> torch.Tensor:
         """Denoiser callback for DPM-Solver or any inference integrator."""
         _, mask = self._current_states(inputs)
         return self.decoder(x, time, encoded["encoding"], inputs["route_lanes"], mask)
 
-    def diffusion_loss(self, inputs: dict[str, torch.Tensor], ego_future: torch.Tensor, neighbor_future: torch.Tensor, neighbor_future_mask: torch.Tensor, eps: float = 1e-3) -> dict[str, torch.Tensor]:
+    def diffusion_loss(
+        self,
+        inputs: dict[str, torch.Tensor],
+        ego_future: torch.Tensor,
+        neighbor_future: torch.Tensor,
+        neighbor_future_mask: torch.Tensor,
+        eps: float = 1e-3,
+    ) -> dict[str, torch.Tensor]:
         """Exact released loss construction, including current-state preservation."""
         batch, predicted_neighbors, horizon, _ = neighbor_future.shape
-        if predicted_neighbors != self.config.predicted_neighbor_num or horizon != self.config.future_len:
-            raise ValueError("Future tensors do not match the configured official model dimensions.")
+        if (
+            predicted_neighbors != self.config.predicted_neighbor_num
+            or horizon != self.config.future_len
+        ):
+            raise ValueError(
+                "Future tensors do not match the configured official model dimensions."
+            )
         current, current_mask = self._current_states(inputs)
         all_mask = torch.cat([current_mask.unsqueeze(-1), neighbor_future_mask], dim=-1)
         future = torch.cat([ego_future[:, None], neighbor_future], dim=1)
@@ -94,5 +124,7 @@ class DiffusionPlanner(nn.Module):
         else:
             loss = (score - clean[:, :, 1:]).square().sum(dim=-1)
         valid_neighbors = ~neighbor_future_mask
-        neighbor_loss = loss[:, 1:][valid_neighbors].mean() if valid_neighbors.any() else loss.new_zeros(())
+        neighbor_loss = (
+            loss[:, 1:][valid_neighbors].mean() if valid_neighbors.any() else loss.new_zeros(())
+        )
         return {"ego_planning_loss": loss[:, 0].mean(), "neighbor_prediction_loss": neighbor_loss}

@@ -54,10 +54,12 @@ class NuPlanDataset(torch.utils.data.Dataset):
             ).resolve().is_relative_to(self.data_dir):
                 raise ValueError("manifest paths must be relative to the data directory")
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.files)
 
-    def __getitem__(self, index):
+    def __getitem__(
+        self, index: int
+    ) -> tuple[dict[str, torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor]:
         import numpy as np
 
         with np.load(self.data_dir / self.files[index], allow_pickle=False) as sample:

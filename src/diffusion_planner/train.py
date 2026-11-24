@@ -1,8 +1,11 @@
 """Practical single-process NPZ training (not the official distributed recipe)."""
 
 import argparse
+import hashlib
 import json
+import platform
 import random
+import subprocess
 import time
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -24,6 +27,7 @@ from diffusion_planner.training import (
     load_checkpoint,
     save_checkpoint,
     train_step,
+    validate,
 )
 
 
@@ -31,6 +35,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", required=True)
     parser.add_argument("--manifest", required=True)
+    parser.add_argument("--val-manifest", help="optional disjoint validation split")
     parser.add_argument("--output", required=True)
     parser.add_argument("--config", help="JSON PlannerConfig overrides")
     parser.add_argument("--epochs", type=int, required=True)
@@ -56,8 +61,16 @@ def main(argv=None):
     config = PlannerConfig(**(json.loads(Path(args.config).read_text()) if args.config else {}))
     if args.augment and config.future_len < 21:
         parser.error("augmentation requires at least 21 future steps at 10 Hz")
+    source_hash = hashlib.sha256()
+    package_dir = Path(__file__).resolve().parent
+    for source in sorted(package_dir.rglob("*.py")):
+        source_hash.update(str(source.relative_to(package_dir)).encode())
+        source_hash.update(source.read_bytes())
     recipe = {
         "model": asdict(config),
+        "source_sha256": source_hash.hexdigest(),
+        "torch_version": str(torch.__version__),
+        "python_version": platform.python_version(),
         "batch_size": args.batch_size,
         "lr": args.lr,
         "planning_weight": args.planning_weight,
@@ -69,7 +82,17 @@ def main(argv=None):
         "ema_decay": args.ema_decay,
         "augment": args.augment,
     }
-    identity = dataset_identity(args.data_dir, args.manifest, recipe)
+    train_hashes: set[str] = set()
+    if args.val_manifest:
+        val_hashes: set[str] = set()
+        recipe["validation_identity"] = dataset_identity(
+            args.data_dir, args.val_manifest, {"split": "validation"}, files_out=val_hashes
+        )
+        identity = dataset_identity(args.data_dir, args.manifest, recipe, files_out=train_hashes)
+        if train_hashes & val_hashes:
+            raise ValueError("training and validation manifests contain identical files")
+    else:
+        identity = dataset_identity(args.data_dir, args.manifest, recipe)
     output = Path(args.output)
     checkpoint = output / "latest.pt"
     if checkpoint.exists() and not args.resume:
@@ -83,6 +106,17 @@ def main(argv=None):
         predicted_neighbors=config.predicted_neighbor_num,
         raw_futures=args.augment,
     )
+    validation_loader = None
+    if args.val_manifest:
+        validation_dataset = NuPlanDataset(
+            args.data_dir,
+            args.val_manifest,
+            past_neighbors=config.agent_num,
+            predicted_neighbors=config.predicted_neighbor_num,
+        )
+        validation_loader = DataLoader(
+            validation_dataset, batch_size=args.batch_size, shuffle=False, num_workers=0
+        )
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -107,10 +141,26 @@ def main(argv=None):
     if args.epochs <= start:
         raise ValueError("epochs must exceed the checkpoint epoch")
     output.mkdir(parents=True, exist_ok=True)
+    try:
+        revision = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL
+        ).strip()
+        dirty = bool(
+            subprocess.check_output(
+                ["git", "status", "--porcelain"], text=True, stderr=subprocess.DEVNULL
+            ).strip()
+        )
+    except (OSError, subprocess.CalledProcessError):
+        revision, dirty = "unavailable", None
     session = {
         "identity": identity,
         "recipe": recipe,
         "torch": torch.__version__,
+        "python": platform.python_version(),
+        "code_revision": revision,
+        "code_dirty": dirty,
+        "initialization": "random" if not args.resume else "checkpoint",
+        "precision": "float32",
         "started_utc": datetime.now(timezone.utc).isoformat(),
         "resume_epoch": start,
         "requested_epochs": args.epochs,
@@ -118,6 +168,7 @@ def main(argv=None):
     (output / f"session-{uuid4().hex}.json").write_text(json.dumps(session, indent=2) + "\n")
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
     started = time.monotonic()
+    wall_started = datetime.now(timezone.utc)
     tracker = Tracker(args.mlflow_uri)
     tracker.start(
         {
@@ -127,12 +178,22 @@ def main(argv=None):
             "batch_size": args.batch_size,
             "lr": args.lr,
             "resume_epoch": start,
+            "code_revision": revision,
+            "code_dirty": str(dirty),
+            "python": platform.python_version(),
+            "torch": str(torch.__version__),
+            "precision": "float32",
         }
     )
     status = "FAILED"
     try:
         for epoch in range(start, args.epochs):
-            total = 0.0
+            totals = {
+                "loss": 0.0,
+                "ego_planning_loss": 0.0,
+                "neighbor_prediction_loss": 0.0,
+                "gradient_norm": 0.0,
+            }
             count = 0
             for inputs, ego, neighbors, mask in loader:
                 inputs = {key: value.to(device) for key, value in inputs.items()}
@@ -152,8 +213,20 @@ def main(argv=None):
                     planning_weight=args.planning_weight,
                 )
                 ema.update(model)
-                total += losses["loss"].item() * ego.size(0)
+                for name in totals:
+                    totals[name] += losses[name].item() * ego.size(0)
                 count += ego.size(0)
+            validation = (
+                validate(
+                    model,
+                    validation_loader,
+                    device=device,
+                    seed=args.seed + epoch,
+                    planning_weight=args.planning_weight,
+                )
+                if validation_loader is not None
+                else None
+            )
             scheduler.step()
             save_checkpoint(
                 checkpoint,
@@ -165,6 +238,7 @@ def main(argv=None):
                 ema=ema,
             )
             elapsed = time.monotonic() - started
+            wall_elapsed = (datetime.now(timezone.utc) - wall_started).total_seconds()
             progress = estimate_progress(
                 start_epoch=start,
                 completed_epoch=epoch + 1,
@@ -174,9 +248,15 @@ def main(argv=None):
             )
             tracker.log(
                 {
-                    "loss": total / count,
+                    **{name: value / count for name, value in totals.items()},
+                    **(
+                        {f"validation_{name}": value for name, value in validation.items()}
+                        if validation
+                        else {}
+                    ),
                     "learning_rate": optimizer.param_groups[0]["lr"],
                     "active_seconds": elapsed,
+                    "session_wall_seconds": wall_elapsed,
                     "remaining_seconds": progress["remaining_seconds"],
                 },
                 step=epoch + 1,
@@ -185,9 +265,11 @@ def main(argv=None):
                     "estimate_provisional": str(progress["provisional"]),
                 },
             )
+            if validation is not None:
+                print(f"validation_loss={validation['loss']:.6f}", flush=True)
             print(
-                f"epoch {epoch + 1}/{args.epochs} loss={total / count:.6f} "
-                f"active_seconds={elapsed:.1f} "
+                f"epoch {epoch + 1}/{args.epochs} loss={totals['loss'] / count:.6f} "
+                f"active_seconds={elapsed:.1f} wall_seconds={wall_elapsed:.1f} "
                 f"remaining_seconds={progress['remaining_seconds']:.1f} "
                 f"finish={progress['finish'].isoformat()} provisional={progress['provisional']}",
                 flush=True,

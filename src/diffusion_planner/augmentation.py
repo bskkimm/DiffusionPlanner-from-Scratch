@@ -4,15 +4,15 @@ import torch
 
 
 def quintic_positions(
-    start,
-    start_velocity,
-    start_acceleration,
-    end,
-    end_velocity,
-    end_acceleration,
+    start: torch.Tensor,
+    start_velocity: torch.Tensor,
+    start_acceleration: torch.Tensor,
+    end: torch.Tensor,
+    end_velocity: torch.Tensor,
+    end_acceleration: torch.Tensor,
     horizon: float,
     times: torch.Tensor,
-):
+) -> torch.Tensor:
     """Interpolate positions with specified endpoint position, velocity, acceleration.
 
     Endpoint tensors are (B, 2), times are (S,) in seconds, and output is (B,S,2).
@@ -47,7 +47,9 @@ def quintic_positions(
     return torch.einsum("sk,bkd->bsd", powers, coefficients)
 
 
-def to_ego_frame(inputs, ego_future, neighbor_future):
+def to_ego_frame(
+    inputs: dict[str, torch.Tensor], ego_future: torch.Tensor, neighbor_future: torch.Tensor
+) -> tuple[dict[str, torch.Tensor], torch.Tensor, torch.Tensor]:
     """Transform raw positions/vectors and yaw to the current ego frame.
 
     Preserves upstream zero padding for neighbors, map vectors and static objects.
@@ -98,8 +100,13 @@ def to_ego_frame(inputs, ego_future, neighbor_future):
 
 
 def perturb_and_reframe(
-    inputs, ego_future, neighbor_future, *, probability: float = 0.5, wheelbase: float = 3.089
-):
+    inputs: dict[str, torch.Tensor],
+    ego_future: torch.Tensor,
+    neighbor_future: torch.Tensor,
+    *,
+    probability: float = 0.5,
+    wheelbase: float = 3.089,
+) -> tuple[dict[str, torch.Tensor], torch.Tensor, torch.Tensor]:
     """Perturb ego state, reconnect its future with a quintic, and reframe.
 
     Uses the released default perturbation ranges, 0.1 s steps and a 2.1 s

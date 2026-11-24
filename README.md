@@ -22,7 +22,7 @@ The notebook is the recommended entry point. It derives the architecture in exec
 - An unguided second-order DPM-Solver++ sampler and denoiser callback; numerical verification is limited to fixed CPU operator fixtures.
 - `notebooks/diffusion_planner_walkthrough.ipynb`, a module-by-module architecture study with input/output traces.
 
-> **Scope.** This is an incomplete implementation, not a complete nuPlan benchmark reproduction. It omits nuPlan's SDK-dependent raw-data preprocessing, released checkpoint loading, the upstream DPM-Solver dependency, distributed training, and closed-loop runners. The model is intended to follow the official release; operator and checkpoint parity remain unverified. See [the source audit](docs/paper-to-code.md) and [paper brief](docs/paper-brief.md).
+> **Scope.** This is an incomplete implementation, not a complete nuPlan benchmark reproduction. It omits nuPlan's SDK-dependent raw-data preprocessing, verified released checkpoint compatibility, the upstream DPM-Solver dependency, distributed training, and closed-loop runners. The model is intended to follow the official release; operator and checkpoint parity remain unverified. See [the source audit](docs/paper-to-code.md) and [paper brief](docs/paper-brief.md).
 
 ## Learn the architecture
 
@@ -35,7 +35,7 @@ Open `notebooks/diffusion_planner_walkthrough.ipynb` and run its cells in order.
 
 ## Install and test
 
-For a reproducible Python 3.11 CPU environment, install `requirements/cpu-py311.lock`, then install the project with `python -m pip install --no-deps .`. The lock does not cover GPU, MLflow, or Python 3.10 dependencies.
+Supported CPU environments are Python 3.11 and 3.12. Install `requirements/cpu-py311.lock` or `requirements/cpu-py312.lock`, then install the project with `python -m pip install --no-deps --no-build-isolation .`. The locks do not cover GPU or MLflow dependencies. Python 3.10 support was dropped because its newest compatible filelock version has known advisories and the fixed version requires Python 3.11 or later.
 
 ```bash
 python3 -m pip install -e ".[dev]"
@@ -99,7 +99,7 @@ python -m diffusion_planner.train --data-dir /path/to/generated-data \
   --manifest /path/to/train-list.json --output checkpoints/example --epochs 2 --resume
 ```
 
-This runner hashes sample contents and the recipe to reject changed data or settings on resume. It runs the actual loss and optimizer on CPU by default. It is a practical baseline, not the official distributed training recipe: it implements EMA and an epoch-based warmup, with optional `--augment` ego-state perturbation; official validation remains unavailable. The augmentation expects 10 Hz raw futures with at least 21 steps and has only been compared on synthetic CPU fixtures. Optional MLflow session logging has been checked against a local SQLite store with MLflow 3.14. Only load checkpoints you trust. The sampler in `sampling.py` includes an unguided DPM-Solver++ path checked against three fixed upstream CPU operator fixtures, plus a simpler deterministic alternative. The solver supports released-style collision guidance and experimental caller-provided energy guidance. The collision path matches a non-degenerate upstream CPU fixture; exact ties, checkpoint parity and real-data behavior remain unverified.
+This runner hashes sample contents and the recipe to reject changed data or settings on resume. It runs the actual loss and optimizer on CPU by default. It is a practical baseline, not the official distributed training recipe: it implements EMA and an epoch-based warmup, with optional `--augment` ego-state perturbation and `--val-manifest` diagnostic loss; official closed-loop validation remains unavailable. The augmentation expects 10 Hz raw futures with at least 21 steps and has only been compared on synthetic CPU fixtures. Optional MLflow session logging has been checked against a local SQLite store with MLflow 3.14. Only load checkpoints you trust. The sampler in `sampling.py` includes an unguided DPM-Solver++ path checked against three fixed upstream CPU operator fixtures, plus a simpler deterministic alternative. The solver supports released-style collision guidance and experimental caller-provided energy guidance. The collision path matches a non-degenerate upstream CPU fixture; exact ties, checkpoint parity and real-data behavior remain unverified.
 
 To compute diagnostic open-loop ego displacement on a separate NPZ split:
 
@@ -108,7 +108,7 @@ python -m diffusion_planner.evaluate --data-dir /path/to/generated-data \
   --manifest /path/to/validation-list.json --checkpoint checkpoints/example/latest.pt --ema
 ```
 
-This reports ADE/FDE in meters for a single sampled trajectory; add `--collision-guidance` to enable the released-style collision score. It is not a nuPlan closed-loop score. Use the same `--config` file as training when overriding model dimensions.
+This reports ADE/FDE in meters for a single sampled trajectory; add `--collision-guidance` to enable the released-style collision score. It is not a nuPlan closed-loop score. Use the same `--config` file as training when overriding model dimensions. `--official-checkpoint` maps keys from the pinned upstream model; its mapping was tested on synthetic upstream weights, not an actual released checkpoint.
 
 Optional tracking uses `pip install -e ".[tracking]"` and `--mlflow-uri sqlite:///mlflow.db`; start the UI with `mlflow ui --backend-store-uri sqlite:///mlflow.db`. Each resumed session gets a separate run linked by the same data/recipe identity. MLflow is disabled by default.
 

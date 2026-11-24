@@ -222,3 +222,16 @@ def test_full_dit_training_matches_pinned_upstream_fixture():
         ]
     )
     torch.testing.assert_close(output, expected, rtol=1e-5, atol=1e-6)
+
+
+def test_diffusion_loss_works_in_eval_mode_for_validation():
+    cfg = config()
+    model = DiffusionPlanner(cfg).eval()
+    losses = model.diffusion_loss(
+        inputs(cfg),
+        torch.randn(2, cfg.future_len, 4),
+        torch.randn(2, cfg.predicted_neighbor_num, cfg.future_len, 4),
+        torch.zeros(2, cfg.predicted_neighbor_num, cfg.future_len, dtype=torch.bool),
+    )
+    assert not model.training
+    assert all(torch.isfinite(value) for value in losses.values())

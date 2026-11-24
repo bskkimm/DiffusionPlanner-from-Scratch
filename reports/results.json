@@ -1,0 +1,10 @@
+{
+  "status": "synthetic_and_operator_checks_only",
+  "paper_results_reproduced": false,
+  "real_dataset": null,
+  "official_checkpoint": null,
+  "official_closed_loop_metrics": null,
+  "gpu_validation": null,
+  "source_revision": "a3a621f0b724c5fa6447f7a2fbaf9e0387bd35df",
+  "notes": "See docs/paper-to-code.md for scoped CPU operator comparisons. No real-data or closed-loop results have been measured."
+}

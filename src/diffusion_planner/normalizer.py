@@ -32,6 +32,8 @@ class ObservationNormalizer:
                 continue
             value = data[name]
             mask = value.ne(0).any(dim=-1, keepdim=True)
-            output[name] = (value - torch.tensor(mean, device=value.device)) / torch.tensor(std, device=value.device)
+            output[name] = (value - torch.tensor(mean, device=value.device)) / torch.tensor(
+                std, device=value.device
+            )
             output[name] = output[name] * mask
         return output

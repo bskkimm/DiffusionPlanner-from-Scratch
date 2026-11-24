@@ -115,3 +115,42 @@ def test_notebook_executes_in_fresh_cpu_process():
         check=True,
     )
     assert "synthetic future shape:" in process.stdout
+
+
+def test_notebook_definitions_are_complete_and_not_shadowed():
+    import ast
+    from collections import Counter
+
+    path = Path(__file__).parents[1] / "notebooks" / "diffusion_planner_walkthrough.ipynb"
+    notebook = json.loads(path.read_text(encoding="utf-8"))
+    names = []
+    for cell in notebook["cells"]:
+        if cell["cell_type"] == "code":
+            tree = ast.parse("".join(cell["source"]))
+            names.extend(
+                node.name for node in tree.body if isinstance(node, (ast.ClassDef, ast.FunctionDef))
+            )
+    counts = Counter(names)
+    expected = {
+        "PlannerConfig",
+        "Mlp",
+        "DropPath",
+        "MixerBlock",
+        "VPSchedule",
+        "StateNormalizer",
+        "ObservationNormalizer",
+        "SelfAttentionBlock",
+        "AgentFusionEncoder",
+        "StaticFusionEncoder",
+        "LaneFusionEncoder",
+        "FusionEncoder",
+        "ContextEncoder",
+        "TimestepEmbedder",
+        "DiTBlock",
+        "FinalLayer",
+        "RouteEncoder",
+        "TrajectoryDiT",
+        "DiffusionPlanner",
+    }
+    assert expected <= counts.keys()
+    assert all(count == 1 for count in counts.values())

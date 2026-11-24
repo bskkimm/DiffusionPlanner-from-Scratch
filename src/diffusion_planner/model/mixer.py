@@ -7,7 +7,14 @@ from torch import nn
 class Mlp(nn.Module):
     """Equivalent to timm's two-layer MLP used in the official source."""
 
-    def __init__(self, in_features: int, hidden_features: int, out_features: int | None = None, drop: float = 0.0, approximate: str = "none") -> None:
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: int,
+        out_features: int | None = None,
+        drop: float = 0.0,
+        approximate: str = "none",
+    ) -> None:
         super().__init__()
         out_features = out_features or in_features
         self.fc1 = nn.Linear(in_features, hidden_features)

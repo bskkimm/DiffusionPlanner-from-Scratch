@@ -118,12 +118,18 @@ def train_step(
     if not torch.isfinite(total):
         raise FloatingPointError("non-finite training loss")
     total.backward()
-    torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm, error_if_nonfinite=True)
+    gradient_norm = torch.nn.utils.clip_grad_norm_(
+        model.parameters(), max_grad_norm, error_if_nonfinite=True
+    )
     optimizer.step()
-    return {**{name: value.detach() for name, value in losses.items()}, "loss": total.detach()}
+    return {
+        **{name: value.detach() for name, value in losses.items()},
+        "loss": total.detach(),
+        "gradient_norm": gradient_norm.detach(),
+    }
 
 
-def dataset_identity(data_dir, manifest, recipe: dict) -> str:
+def dataset_identity(data_dir, manifest, recipe: dict, *, files_out: set[str] | None = None) -> str:
     """Hash ordered split contents and the resolved recipe before training/resume."""
     import hashlib
     import json
@@ -137,9 +143,14 @@ def dataset_identity(data_dir, manifest, recipe: dict) -> str:
         if not isinstance(name, str) or not (root / name).resolve().is_relative_to(root):
             raise ValueError("manifest paths must be relative to data directory")
         digest.update(json.dumps(name).encode())
+        sample_digest = hashlib.sha256() if files_out is not None else None
         with (root / name).open("rb") as stream:
             for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                 digest.update(chunk)
+                if sample_digest is not None:
+                    sample_digest.update(chunk)
+        if sample_digest is not None and files_out is not None:
+            files_out.add(sample_digest.hexdigest())
     return digest.hexdigest()
 
 
@@ -158,3 +169,43 @@ def estimate_progress(*, start_epoch, completed_epoch, total_epochs, elapsed_sec
         "finish": now + timedelta(seconds=remaining),
         "provisional": completed < 2,
     }
+
+
+def validate(model, loader, *, device: torch.device, seed: int, planning_weight: float = 1.0):
+    """Compute deterministic diagnostic diffusion losses without advancing training RNG."""
+    from diffusion_planner.data import normalize_observations
+
+    was_training = model.training
+    model.eval()
+    devices = (
+        [device.index if device.index is not None else torch.cuda.current_device()]
+        if device.type == "cuda"
+        else []
+    )
+    sums = {"ego_planning_loss": 0.0, "neighbor_prediction_loss": 0.0}
+    count = 0
+    try:
+        with torch.random.fork_rng(devices=devices), torch.no_grad():
+            torch.random.default_generator.manual_seed(seed)
+            if device.type == "cuda":
+                with torch.cuda.device(device):
+                    torch.cuda.manual_seed(seed)
+            for inputs, ego, neighbors, mask in loader:
+                inputs = normalize_observations(
+                    {name: value.to(device) for name, value in inputs.items()}
+                )
+                losses = model.diffusion_loss(
+                    inputs, ego.to(device), neighbors.to(device), mask.to(device)
+                )
+                for name in sums:
+                    sums[name] += losses[name].item() * ego.size(0)
+                count += ego.size(0)
+    finally:
+        model.train(was_training)
+    if count == 0:
+        raise ValueError("validation loader is empty")
+    result = {name: value / count for name, value in sums.items()}
+    result["loss"] = (
+        planning_weight * result["ego_planning_loss"] + result["neighbor_prediction_loss"]
+    )
+    return result

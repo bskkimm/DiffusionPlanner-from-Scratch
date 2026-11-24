@@ -8,6 +8,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from diffusion_planner import DiffusionPlanner, PlannerConfig
+from diffusion_planner.checkpoint_import import import_official_state
 from diffusion_planner.data import NuPlanDataset, normalize_observations
 from diffusion_planner.guidance import make_collision_score
 from diffusion_planner.metrics import displacement_errors
@@ -22,6 +23,9 @@ def main(argv=None):
     parser.add_argument("--config", help="JSON PlannerConfig overrides used by checkpoint")
     parser.add_argument("--steps", type=int, default=10)
     parser.add_argument("--ema", action="store_true", help="evaluate EMA weights")
+    parser.add_argument(
+        "--official-checkpoint", action="store_true", help="map upstream checkpoint keys"
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--temperature", type=float, default=0.5)
     parser.add_argument("--collision-guidance", action="store_true")
@@ -38,9 +42,14 @@ def main(argv=None):
     )
     model = DiffusionPlanner(config).eval()
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
-    if args.ema and state.get("ema") is None:
+    ema_key = "ema_state_dict" if args.official_checkpoint else "ema"
+    if args.ema and state.get(ema_key) is None:
         raise ValueError("checkpoint does not contain EMA weights")
-    model.load_state_dict(state["ema"] if args.ema else state["model"])
+    weights = state[ema_key] if args.ema else state.get("model", state)
+    if args.official_checkpoint:
+        import_official_state(model, weights)
+    else:
+        model.load_state_dict(weights)
     torch.manual_seed(args.seed)
     ades, fdes = [], []
     for inputs, ego, _, _ in DataLoader(dataset, batch_size=1, shuffle=False):
@@ -84,6 +93,7 @@ def main(argv=None):
                 "collision_guidance": args.collision_guidance,
                 "guidance_scale": args.guidance_scale if args.collision_guidance else 0.0,
                 "weights": "ema" if args.ema else "model",
+                "official_checkpoint": args.official_checkpoint,
                 "steps": args.steps,
                 "ego_ade_m": sum(ades) / len(ades),
                 "ego_fde_m": sum(fdes) / len(fdes),

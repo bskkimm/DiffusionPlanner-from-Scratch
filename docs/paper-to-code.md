@@ -38,3 +38,5 @@ Synthetic tests cannot establish planning performance.
 - The reduced full decoder was compared with the released DiT at identical mapped weights and matched seeded inputs in both train and evaluation modes; the observed maximum CPU output difference was zero. This does not test official weights, guidance, or full dimensions.
 
 - `--augment` uses the released default perturbation ranges and Pacifica wheelbase. A seeded synthetic CPU comparison against upstream differed by at most `6.3e-5` in the tested future positions/headings, consistent with solving the quintic system instead of multiplying by a precomputed inverse. GPU parity, additional edge cases and real samples remain unverified.
+
+- `checkpoint_import.py` maps the pinned upstream model names with strict key/shape validation. A reduced randomly initialized upstream model compared against this implementation in training mode with mapped weights and matched inputs produced maximum context error `4.8e-7` and trajectory output error `1.8e-7` on the tested CPU. Released checkpoint files and their provenance have not been verified.
