@@ -35,6 +35,17 @@ implemented here.
   The tests generate temporary synthetic NPZs and run the full training,
   resume, evaluation and tuning interfaces without external data.
 
+To generate an offline smoke fixture without downloading nuPlan:
+
+```bash
+python scripts/create_synthetic_fixture.py --output /tmp/diffusion-smoke
+python -m diffusion_planner.train --data-dir /tmp/diffusion-smoke \
+  --manifest /tmp/diffusion-smoke/train.json --val-manifest /tmp/diffusion-smoke/validation.json \
+  --config configs/smoke-model.json --output /tmp/diffusion-smoke-run --epochs 1 --augment
+```
+
+These randomly generated inputs are for testing only and are not evidence of driving performance.
+
 ```bash
 python -m diffusion_planner.train --data-dir /path/to/npz \
   --manifest /path/to/train.json --val-manifest /path/to/validation.json \
