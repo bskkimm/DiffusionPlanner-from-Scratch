@@ -1,0 +1,48 @@
+{
+  "status": "synthetic_and_operator_checks_only",
+  "paper_results_reproduced": false,
+  "real_dataset": null,
+  "official_checkpoint": null,
+  "official_closed_loop_metrics": null,
+  "gpu_validation": null,
+  "source_revision": "a3a621f0b724c5fa6447f7a2fbaf9e0387bd35df",
+  "notes": "See docs/paper-to-code.md for scoped CPU operator comparisons. No real-data or closed-loop results have been measured.",
+  "synthetic_diagnostic": {
+    "code_revision": "153229cb86a178592fa331ecbd97cb8924aedd88",
+    "dataset": "generated synthetic train split; not nuPlan",
+    "data_identity": "35f9e2e63086cc1742cf45b874ed6ce9f37503ddbf7eb04403fb1a44c125965c",
+    "model_config": "configs/smoke-model.json",
+    "model_config_sha256": "b9396227a19a11d28499d34b91c6bfd3da14f204148d84b9b3c5c0c75e090471",
+    "checkpoint_sha256": null,
+    "initialization": "random",
+    "seed": 42,
+    "protocol": "CPU FP32, batch 1, 2 warmup updates, 5 timed iterations, zero loader workers; OS cache uncontrolled",
+    "metrics": {
+      "end_to_end_samples_per_second": 108.19242575762209,
+      "loader_samples_per_second": 1590.7133101681243,
+      "cached_step_samples_per_second": 114.14744888262909
+    },
+    "units": "samples/second",
+    "outputs": [
+      "reports/benchmark-cpu.json",
+      "reports/tuning-cpu.json"
+    ]
+  },
+  "synthetic_evaluation": {
+    "code_revision": "153229cb86a178592fa331ecbd97cb8924aedd88",
+    "dataset": "generated synthetic validation split; not nuPlan",
+    "data_identity": "3b0cb17d8d2576d518be381234045fe6656588090db005feaaa7eaf59ab8b295",
+    "model_config": "configs/smoke-model.json",
+    "model_config_sha256": "b9396227a19a11d28499d34b91c6bfd3da14f204148d84b9b3c5c0c75e090471",
+    "checkpoint_sha256": "67182a9aff1306f589a942ea862ef4b5e022c18adb2fc2652b8d4d86934260c5",
+    "seed": 42,
+    "protocol": "single-sample open-loop ego ADE/FDE, EMA, ten DPM-Solver++ steps, collision guidance, temperature 0.5; synthetic data only",
+    "metrics": {
+      "ego_ade_m": 4.550829172134399,
+      "ego_fde_m": 0.5023963153362274
+    },
+    "units": "meters",
+    "output": "reports/smoke-evaluation.json",
+    "warning": "not a real-data or planning-performance result"
+  }
+}

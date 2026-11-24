@@ -4,7 +4,7 @@ import torch
 from torch import nn
 
 from diffusion_planner.config import PlannerConfig
-from diffusion_planner.model.mixer import DropPath, Mlp, MixerBlock
+from diffusion_planner.model.mixer import DropPath, MixerBlock, Mlp
 
 
 class SelfAttentionBlock(nn.Module):
@@ -14,7 +14,7 @@ class SelfAttentionBlock(nn.Module):
         self.attn = nn.MultiheadAttention(dim, heads, dropout, batch_first=True)
         self.drop_path = DropPath(dropout) if dropout > 0 else nn.Identity()
         self.norm2 = nn.LayerNorm(dim)
-        self.mlp = Mlp(dim, dim * 4)
+        self.mlp = Mlp(dim, dim * 4, drop=dropout)
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         x = x + self.drop_path(self.attn(self.norm1(x), x, x, key_padding_mask=mask)[0])
@@ -29,9 +29,13 @@ class AgentFusionEncoder(nn.Module):
         self.type_emb = nn.Linear(3, 128)
         self.channel_pre_project = Mlp(9, 128, 128)
         self.token_pre_project = Mlp(config.time_len, 64, 64)
-        self.blocks = nn.ModuleList(MixerBlock(64, 128, config.encoder_drop_path_rate) for _ in range(config.encoder_depth))
+        self.blocks = nn.ModuleList(
+            MixerBlock(64, 128, config.encoder_drop_path_rate) for _ in range(config.encoder_depth)
+        )
         self.norm = nn.LayerNorm(128)
-        self.emb_project = Mlp(128, config.hidden_dim, config.hidden_dim)
+        self.emb_project = Mlp(
+            128, config.hidden_dim, config.hidden_dim, drop=config.encoder_drop_path_rate
+        )
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         batch, agents, frames, _ = x.shape
@@ -42,7 +46,9 @@ class AgentFusionEncoder(nn.Module):
         pos[..., -3] = 1
         vector_mask = states.abs().sum(dim=-1) == 0
         token_mask = (~vector_mask).sum(dim=-1) == 0
-        states = torch.cat([states, (~vector_mask).float().unsqueeze(-1)], dim=-1).reshape(batch * agents, frames, 9)
+        states = torch.cat([states, (~vector_mask).float().unsqueeze(-1)], dim=-1).reshape(
+            batch * agents, frames, 9
+        )
         valid = ~token_mask.reshape(-1)
         result = states.new_zeros(batch * agents, self.emb_project.fc2.out_features)
         if valid.any():
@@ -59,7 +65,12 @@ class StaticFusionEncoder(nn.Module):
     def __init__(self, config: PlannerConfig) -> None:
         super().__init__()
         self.hidden_dim = config.hidden_dim
-        self.projection = Mlp(config.static_objects_state_dim, config.hidden_dim, config.hidden_dim)
+        self.projection = Mlp(
+            config.static_objects_state_dim,
+            config.hidden_dim,
+            config.hidden_dim,
+            drop=config.encoder_drop_path_rate,
+        )
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         batch, objects, _ = x.shape
@@ -85,11 +96,17 @@ class LaneFusionEncoder(nn.Module):
         self.traffic_emb = nn.Linear(4, 128)
         self.channel_pre_project = Mlp(8, 128, 128)
         self.token_pre_project = Mlp(config.lane_len, 64, 64)
-        self.blocks = nn.ModuleList(MixerBlock(64, 128, config.encoder_drop_path_rate) for _ in range(config.encoder_depth))
+        self.blocks = nn.ModuleList(
+            MixerBlock(64, 128, config.encoder_drop_path_rate) for _ in range(config.encoder_depth)
+        )
         self.norm = nn.LayerNorm(128)
-        self.emb_project = Mlp(128, config.hidden_dim, config.hidden_dim)
+        self.emb_project = Mlp(
+            128, config.hidden_dim, config.hidden_dim, drop=config.encoder_drop_path_rate
+        )
 
-    def forward(self, x: torch.Tensor, speed_limit: torch.Tensor, has_speed_limit: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(
+        self, x: torch.Tensor, speed_limit: torch.Tensor, has_speed_limit: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         batch, lanes, points, _ = x.shape
         traffic = x[:, :, 0, 8:]
         states = x[..., :8]
@@ -103,7 +120,9 @@ class LaneFusionEncoder(nn.Module):
         valid = ~token_mask.reshape(-1)
         result = states.new_zeros(batch * lanes, self.emb_project.fc2.out_features)
         if valid.any():
-            encoded = self.channel_pre_project(states.reshape(batch * lanes, points, 8)[valid]).transpose(1, 2)
+            encoded = self.channel_pre_project(
+                states.reshape(batch * lanes, points, 8)[valid]
+            ).transpose(1, 2)
             encoded = self.token_pre_project(encoded).transpose(1, 2)
             for block in self.blocks:
                 encoded = block(encoded)
@@ -115,7 +134,11 @@ class LaneFusionEncoder(nn.Module):
                 speed_embedding[known] = self.speed_limit_emb(speed[known])
             if (~known).any():
                 speed_embedding[~known] = self.unknown_speed_emb.weight.expand((~known).sum(), -1)
-            encoded = encoded + speed_embedding + self.traffic_emb(traffic.reshape(batch * lanes, 4)[valid])
+            encoded = (
+                encoded
+                + speed_embedding
+                + self.traffic_emb(traffic.reshape(batch * lanes, 4)[valid])
+            )
             result[valid] = self.emb_project(self.norm(encoded))
         return result.reshape(batch, lanes, -1), token_mask, pos
 
@@ -123,7 +146,10 @@ class LaneFusionEncoder(nn.Module):
 class FusionEncoder(nn.Module):
     def __init__(self, config: PlannerConfig) -> None:
         super().__init__()
-        self.blocks = nn.ModuleList(SelfAttentionBlock(config.hidden_dim, config.num_heads, config.encoder_drop_path_rate) for _ in range(config.encoder_depth))
+        self.blocks = nn.ModuleList(
+            SelfAttentionBlock(config.hidden_dim, config.num_heads, config.encoder_drop_path_rate)
+            for _ in range(config.encoder_depth)
+        )
         self.norm = nn.LayerNorm(config.hidden_dim)
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -149,7 +175,9 @@ class ContextEncoder(nn.Module):
     def forward(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         agents, agent_mask, agent_pos = self.agents(inputs["neighbor_agents_past"])
         static, static_mask, static_pos = self.static(inputs["static_objects"])
-        lanes, lane_mask, lane_pos = self.lanes(inputs["lanes"], inputs["lanes_speed_limit"], inputs["lanes_has_speed_limit"])
+        lanes, lane_mask, lane_pos = self.lanes(
+            inputs["lanes"], inputs["lanes_speed_limit"], inputs["lanes_has_speed_limit"]
+        )
         tokens = torch.cat([agents, static, lanes], dim=1)
         mask = torch.cat([agent_mask, static_mask, lane_mask], dim=1)
         positions = torch.cat([agent_pos, static_pos, lane_pos], dim=1)

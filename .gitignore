@@ -7,3 +7,8 @@ __pycache__/
 artifacts/
 data/
 checkpoints/
+
+.coverage*
+build/
+dist/
+.venv/

@@ -1,0 +1,152 @@
+import torch
+
+from diffusion_planner.sampling import sample_ddim
+
+
+def test_sample_preserves_current_state_and_is_seeded():
+    class Oracle:
+        def denoise(self, x, time, encoded, inputs):
+            return torch.zeros_like(x)
+
+    current = torch.tensor([[[1.0, 2.0, 1.0, 0.0]]])
+    noise = torch.randn(1, 1, 3, 4)
+    result = sample_ddim(Oracle(), {}, {}, current, noise, steps=4)
+    torch.testing.assert_close(result[:, :, 0], current)
+    torch.testing.assert_close(
+        result[:, :, 1:], torch.zeros_like(result[:, :, 1:]), atol=1e-5, rtol=0
+    )
+
+
+def test_sampler_rejects_score_models():
+    from types import SimpleNamespace
+
+    import pytest
+
+    model = SimpleNamespace(config=SimpleNamespace(diffusion_model_type="score"))
+    with pytest.raises(ValueError, match="x_start"):
+        sample_ddim(model, {}, {}, torch.zeros(1, 1, 4), torch.zeros(1, 1, 2, 4))
+
+
+def test_dpm_solver_matches_official_fixed_operator_fixture():
+    from diffusion_planner.sampling import sample_dpm_solver
+
+    class Model:
+        def denoise(self, x, time, encoded, inputs):
+            return 0.25 * x + time[:, None, None]
+
+    current = torch.zeros(1, 1, 4)
+    noise = torch.tensor([[[[0.0, 0.0, 0.0, 0.0], [0.1, -0.2, 0.3, -0.4]]]])
+    result = sample_dpm_solver(Model(), {}, {}, current, noise, steps=4)
+    expected = torch.tensor(
+        [[[[0.0, 0.0, 0.0, 0.0], [0.0324631445, 0.0242978651, 0.0379066579, 0.0188543536]]]]
+    )
+    torch.testing.assert_close(result, expected, rtol=1e-4, atol=1e-6)
+
+
+def test_dpm_solver_official_fixtures_at_ten_and_twenty_steps():
+    from diffusion_planner.sampling import sample_dpm_solver
+
+    class Model:
+        def denoise(self, x, time, encoded, inputs):
+            return 0.25 * x + time[:, None, None]
+
+    noise = torch.tensor([[[[0.0, 0.0, 0.0, 0.0], [0.1, -0.2, 0.3, -0.4]]]])
+    fixtures = {
+        10: [0.0085172402, 0.0060069547, 0.0101907598, 0.0043334304],
+        20: [0.0108695729, 0.0080354623, 0.0127589786, 0.0061460570],
+    }
+    for steps, expected in fixtures.items():
+        actual = sample_dpm_solver(Model(), {}, {}, torch.zeros(1, 1, 4), noise, steps=steps)
+        torch.testing.assert_close(actual[0, 0, 1], torch.tensor(expected), rtol=1e-4, atol=1e-6)
+
+
+def test_dpm_solver_optional_energy_guidance_changes_future_but_keeps_current():
+    from diffusion_planner.sampling import sample_dpm_solver
+
+    class Model:
+        def denoise(self, x, time, encoded, inputs):
+            return x * 0.5
+
+    current = torch.tensor([[[1.0, 0.0, 1.0, 0.0]]])
+    noise = torch.ones(1, 1, 3, 4)
+    baseline = sample_dpm_solver(Model(), {}, {}, current, noise, steps=4)
+    guided = sample_dpm_solver(
+        Model(),
+        {},
+        {},
+        current,
+        noise,
+        steps=4,
+        energy_fn=lambda value: value[:, :, 1:, :2].square().sum((1, 2, 3)),
+        guidance_scale=0.00001,
+    )
+    torch.testing.assert_close(guided[:, :, 0], current)
+    assert torch.isfinite(guided).all()
+    assert not torch.equal(guided[:, :, 1:], baseline[:, :, 1:])
+
+
+def test_zero_guidance_scale_matches_unguided_sampling():
+    from diffusion_planner.sampling import sample_dpm_solver
+
+    class Model:
+        def denoise(self, x, time, encoded, inputs):
+            return x * 0.5
+
+    current = torch.zeros(1, 1, 4)
+    noise = torch.ones(1, 1, 3, 4)
+    expected = sample_dpm_solver(Model(), {}, {}, current, noise, steps=4)
+    actual = sample_dpm_solver(
+        Model(),
+        {},
+        {},
+        current,
+        noise,
+        steps=4,
+        energy_fn=lambda x: x.square().sum(),
+        guidance_scale=0,
+    )
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
+def test_classifier_guided_solver_matches_upstream_fixed_fixture():
+    from diffusion_planner.sampling import sample_dpm_solver
+
+    class Model:
+        def denoise(self, x, time, encoded, inputs):
+            return 0.25 * x + time[:, None, None]
+
+    noise = torch.tensor([[[[0.0, 0.0, 0.0, 0.0], [0.1, -0.2, 0.3, -0.4]]]])
+    result = sample_dpm_solver(
+        Model(),
+        {},
+        {},
+        torch.zeros(1, 1, 4),
+        noise,
+        steps=4,
+        score_fn=lambda x, t: -x[:, :, 1:, :2].square().sum((1, 2, 3)),
+        score_scale=0.0001,
+    )
+    expected = torch.tensor([0.0327405147, 0.0245556012, 0.0379066579, 0.0188543536])
+    torch.testing.assert_close(result[0, 0, 1], expected, rtol=1e-4, atol=1e-6)
+
+
+def test_collision_guided_solver_matches_upstream_non_degenerate_fixture():
+    from diffusion_planner.guidance import make_collision_score
+    from diffusion_planner.normalizer import StateNormalizer
+    from diffusion_planner.sampling import sample_dpm_solver
+
+    class Model:
+        def denoise(self, x, time, encoded, inputs):
+            return 0.25 * x + time[:, None, None]
+
+    current = torch.tensor([[[0.0, 0.0, 1.0, 0.0], [0.2, 0.1, 1.0, 0.0]]])
+    noise = torch.ones(1, 2, 5, 4) * 0.05
+    noise[:, 1, 1:, 1] = 0.2
+    score = make_collision_score(
+        StateNormalizer(2), torch.tensor([[[4.5, 2.0]]]), torch.zeros(1, 1, dtype=torch.bool)
+    )
+    result = sample_dpm_solver(
+        Model(), {}, {}, current, noise, steps=10, score_fn=score, score_scale=0.00001
+    )
+    expected = torch.tensor([0.0081493752, 0.0080483379, 0.0080988593, 0.0080988593])
+    torch.testing.assert_close(result[0, 0, 1], expected, rtol=1e-4, atol=1e-6)

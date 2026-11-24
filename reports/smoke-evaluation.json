@@ -1,0 +1,20 @@
+{
+  "protocol": "diagnostic_ego_open_loop",
+  "samples": 2,
+  "seed": 42,
+  "temperature": 0.5,
+  "collision_guidance": true,
+  "guidance_scale": 0.5,
+  "weights": "ema",
+  "official_checkpoint": false,
+  "steps": 10,
+  "ego_ade_m": 4.550829172134399,
+  "ego_fde_m": 0.5023963153362274,
+  "code_revision": "153229cb86a178592fa331ecbd97cb8924aedd88",
+  "checkpoint_sha256": "67182a9aff1306f589a942ea862ef4b5e022c18adb2fc2652b8d4d86934260c5",
+  "checkpoint_storage": "temporary, not committed",
+  "dataset": "generated synthetic validation split; not nuPlan",
+  "data_identity": "3b0cb17d8d2576d518be381234045fe6656588090db005feaaa7eaf59ab8b295",
+  "model_config": "configs/smoke-model.json",
+  "warning": "Synthetic diagnostic values only; not a planning-performance result."
+}
